@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Yamaha SU10 Sampler Editor & SDS Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background-color: #0d0e12;
+      color: #e2e8f0;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      user-select: none;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #12141a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #27272a;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3f3f46;
+    }
+
+    /* Retro LCD Display Glow */
+    .lcd-screen {
+      background: #8b9c1e;
+      color: #121901;
+      font-family: 'Courier New', Courier, monospace;
+      box-shadow: inset 0 0 10px rgba(0,0,0,0.6);
+      text-shadow: 0 1px 0 rgba(255,255,255,0.2);
+    }
+
+    /* Tactile Hardware Buttons */
+    .rubber-btn {
+      background: linear-gradient(180deg, #32363e 0%, #1e2025 100%);
+      box-shadow: 0 3px 0 #121316, inset 0 1px 0 rgba(255,255,255,0.1);
+      transition: all 0.05s ease;
+    }
+    .rubber-btn:active, .rubber-btn.active {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 #121316, inset 0 1px 3px rgba(0,0,0,0.6);
+    }
+
+    .pad-btn {
+      background: linear-gradient(145deg, #2a2d34 0%, #181a1f 100%);
+      box-shadow: 0 4px 0 #0f1013, 0 5px 10px rgba(0,0,0,0.5);
+      transition: all 0.08s ease;
+    }
+    .pad-btn:active, .pad-btn.triggered {
+      transform: translateY(3px);
+      box-shadow: 0 1px 0 #0f1013, 0 0 15px rgba(245, 158, 11, 0.4);
+      border-color: #f59e0b !important;
+    }
+
+    /* Slider Styling */
+    input[type=range] {
+      -webkit-appearance: none;
+      background: transparent;
+    }
+    input[type=range]::-webkit-slider-track {
+      width: 100%;
+      height: 6px;
+      background: #18181b;
+      border-radius: 3px;
+      border: 1px solid #27272a;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 18px;
+      width: 12px;
+      border-radius: 2px;
+      background: linear-gradient(180deg, #a1a1aa 0%, #52525b 100%);
+      cursor: pointer;
+      margin-top: -6px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    }
+
+    /* Ledger LED Indicators */
+    .led-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #27272a;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.8);
+    }
+    .led-dot.active-red {
+      background-color: #ef4444;
+      box-shadow: 0 0 8px #ef4444;
+    }
+    .led-dot.active-amber {
+      background-color: #f59e0b;
+      box-shadow: 0 0 8px #f59e0b;
+    }
+    .led-dot.active-green {
+      background-color: #10b981;
+      box-shadow: 0 0 8px #10b981;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-3 md:p-6 max-w-7xl mx-auto">
+
+  <!-- Header & Web MIDI Status Bar -->
+  <header class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4 shadow-xl flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center font-bold text-amber-500 text-xl">
+        SU
+      </div>
+      <div>
+        <h1 class="text-lg font-bold text-zinc-100 tracking-wide flex items-center gap-2">
+          YAMAHA SU10 <span class="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded font-mono">MIDI SDS & SYS-EX</span>
+        </h1>
+        <p class="text-xs text-zinc-400">12-Pad Lo-Fi Stereo Sampler & Real-time Web MIDI Editor</p>
+      </div>
+    </div>
+
+    <!-- MIDI Port Connections -->
+    <div class="flex flex-wrap items-center gap-3 text-xs">
+      <div class="flex items-center gap-2 bg-zinc-950 px-3 py-1.5 rounded-lg border border-zinc-800">
+        <span class="text-zinc-500 font-semibold">MIDI IN:</span>
+        <select id="midiInSelect" class="bg-transparent text-amber-400 font-mono focus:outline-none cursor-pointer max-w-[140px] truncate">
+          <option value="">Detecting...</option>
+        </select>
+        <div id="midiInLed" class="led-dot"></div>
+      </div>
+
+      <div class="flex items-center gap-2 bg-zinc-950 px-3 py-1.5 rounded-lg border border-zinc-800">
+        <span class="text-zinc-500 font-semibold">MIDI OUT:</span>
+        <select id="midiOutSelect" class="bg-transparent text-amber-400 font-mono focus:outline-none cursor-pointer max-w-[140px] truncate">
+          <option value="">Detecting...</option>
+        </select>
+        <div id="midiOutLed" class="led-dot"></div>
+      </div>
+
+      <button onclick="initWebMIDI()" class="rubber-btn px-3 py-1.5 rounded text-zinc-300 font-semibold hover:text-white text-xs border border-zinc-700">
+        🔄 Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- Hardware Memory Bar -->
+  <section class="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 mb-4 shadow-lg">
+    <div class="flex justify-between items-center text-xs mb-1.5 font-mono">
+      <span class="text-zinc-400 flex items-center gap-2">
+        <span class="text-amber-400 font-bold">SU10 FLASH RAM LIMIT:</span> 384 KB Non-Volatile Memory (393,216 Bytes)
+      </span>
+      <span id="memUsageText" class="text-amber-400 font-bold">0.0 KB / 384.0 KB (0%)</span>
+    </div>
+    <div class="w-full bg-zinc-950 h-3 rounded-full overflow-hidden border border-zinc-800 p-0.5">
+      <div id="memUsageBar" class="bg-gradient-to-r from-emerald-500 via-amber-500 to-red-500 h-full rounded-full transition-all duration-300" style="width: 0%;"></div>
+    </div>
+  </section>
+
+  <!-- Main Grid Layout -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+
+    <!-- Left Column: Audio Downsampler & Waveform Editor (7 Cols) -->
+    <main class="lg:col-span-7 flex flex-col gap-4">
+      <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 shadow-xl flex flex-col gap-4">
+        
+        <div class="flex justify-between items-center border-b border-zinc-800 pb-2">
+          <h2 class="text-sm font-bold text-zinc-200 tracking-wider flex items-center gap-2">
+            <span>🎙️</span> AUDIO SAMPLE IMPORT & SDS CONVERTER
+          </h2>
+          <span class="text-[10px] text-zinc-400 font-mono">Formats: WAV / MP3 / FLAC / OGG</span>
+        </div>
+
+        <!-- File Drop & Import Zone -->
+        <div 
+          id="dropZone"
+          ondragover="handleDragOver(event)"
+          ondragleave="handleDragLeave(event)"
+          ondrop="handleFileDrop(event)"
+          onclick="document.getElementById('audioFileInput').click()"
+          class="border-2 border-dashed border-zinc-700 hover:border-amber-500/50 bg-zinc-950/50 hover:bg-zinc-950 rounded-xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2"
+        >
+          <input type="file" id="audioFileInput" accept="audio/*" onchange="handleFileSelect(event)" class="hidden">
+          <div class="w-12 h-12 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center text-xl text-amber-400">
+            📁
+          </div>
+          <p class="text-xs font-semibold text-zinc-300">Drag & drop audio file here or click to browse</p>
+          <p class="text-[10px] text-zinc-500">Automatically downsampled to 8-bit PCM (12.6 kHz or 25.2 kHz) for SU10 SDS</p>
+        </div>
+
+        <!-- Waveform Visualizer & Interactive Trim/Loop Editor -->
+        <div class="bg-zinc-950 border border-zinc-800 rounded-lg p-3 relative flex flex-col gap-2">
+          <div class="flex justify-between items-center text-[11px] font-mono text-zinc-400">
+            <span id="audioFileName">No File Loaded</span>
+            <span id="audioTrimInfo" class="text-amber-400">Dur: 0.00s | Rate: 44.1kHz (4-bit ADPCM) | Size: 0 KB</span>
+          </div>
+
+          <!-- Waveform Canvas -->
+          <div class="relative w-full h-32 bg-zinc-900 rounded border border-zinc-800 overflow-hidden">
+            <canvas id="waveformCanvas" class="w-full h-full block"></canvas>
+          </div>
+
+          <!-- Trim Sliders -->
+          <div class="grid grid-cols-2 gap-3 pt-2">
+            <div>
+              <div class="flex justify-between text-[10px] font-mono text-zinc-400 mb-1">
+                <span>TRIM START</span>
+                <span id="trimStartVal" class="text-amber-400">0.000s</span>
+              </div>
+              <input type="range" id="trimStartSlider" min="0" max="1" step="0.001" value="0" oninput="updateAudioTrim()">
+            </div>
+            <div>
+              <div class="flex justify-between text-[10px] font-mono text-zinc-400 mb-1">
+                <span>TRIM END</span>
+                <span id="trimEndVal" class="text-amber-400">1.000s</span>
+              </div>
+              <input type="range" id="trimEndSlider" min="0" max="1" step="0.001" value="1" oninput="updateAudioTrim()">
+            </div>
+          </div>
+
+          <!-- Loop Sliders with Zero-Crossing Snap -->
+          <div class="grid grid-cols-2 gap-3 pt-1 border-t border-zinc-800/60">
+            <div>
+              <div class="flex justify-between text-[10px] font-mono text-zinc-400 mb-1">
+                <span class="text-cyan-400 font-bold">LOOP START</span>
+                <span id="loopStartVal" class="text-cyan-400">0.000s</span>
+              </div>
+              <input type="range" id="loopStartSlider" min="0" max="1" step="0.001" value="0" oninput="updateLoopPoints(true)">
+            </div>
+            <div>
+              <div class="flex justify-between text-[10px] font-mono text-zinc-400 mb-1">
+                <span class="text-cyan-400 font-bold">LOOP END</span>
+                <span id="loopEndVal" class="text-cyan-400">1.000s</span>
+              </div>
+              <input type="range" id="loopEndSlider" min="0" max="1" step="0.001" value="1" oninput="updateLoopPoints(true)">
+            </div>
+          </div>
+
+          <!-- Zero Crossing & Audition Actions -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-800">
+            <button onclick="snapLoopPointsToNearestZero()" class="rubber-btn px-2.5 py-1 text-[11px] font-bold text-amber-400 rounded border border-amber-500/40">
+              🧲 Snap Zero Crossings
+            </button>
+            <div class="flex gap-2">
+              <button onclick="playOriginalAudio()" class="rubber-btn px-3 py-1 text-xs text-zinc-300 font-semibold rounded border border-zinc-700">
+                ▶ Original
+              </button>
+              <button onclick="playSU10LofiAudio()" class="rubber-btn px-3 py-1 text-xs text-amber-400 font-semibold rounded border border-amber-600/40">
+                🔊 8-Bit Lo-Fi Preview
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- SU10 Sample Conversion Parameters -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-xs">
+          <div>
+            <label class="block text-zinc-400 font-semibold mb-1">SU10 Sampling Quality (4-bit ADPCM)</label>
+            <select id="sampleRateSelect" onchange="processAudioBuffer()" class="w-full bg-zinc-900 border border-zinc-700 text-amber-400 rounded p-1.5 focus:outline-none font-mono">
+              <option value="44100">High: 44.1 kHz (~17.8s max)</option>
+              <option value="22050">Standard: 22.05 kHz (~35.6s max)</option>
+              <option value="14700">Long: 14.7 kHz (~53.4s max)</option>
+              <option value="11640" selected>Extra Long: 11.64 kHz (~67.4s max)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-zinc-400 font-semibold mb-1">Target Pad Target</label>
+            <select id="targetPadSelect" class="w-full bg-zinc-900 border border-zinc-700 text-amber-400 rounded p-1.5 focus:outline-none font-mono">
+              <option value="A1">Bank A - Pad 1</option>
+              <option value="A2">Bank A - Pad 2</option>
+              <option value="A3">Bank A - Pad 3</option>
+              <option value="A4">Bank A - Pad 4</option>
+              <option value="A5">Bank A - Pad 5</option>
+              <option value="A6">Bank A - Pad 6</option>
+              <option value="A7">Bank A - Pad 7</option>
+              <option value="A8">Bank A - Pad 8</option>
+              <option value="A9">Bank A - Pad 9</option>
+              <option value="A10">Bank A - Pad 10</option>
+              <option value="A11">Bank A - Pad 11</option>
+              <option value="A12">Bank A - Pad 12</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-zinc-400 font-semibold mb-1">Audio Normalization</label>
+            <button onclick="toggleNormalize()" id="btnNormalize" class="w-full rubber-btn py-1.5 text-xs text-emerald-400 font-bold rounded border border-emerald-500/40">
+              ✓ Normalize Volume
+            </button>
+          </div>
+        </div>
+
+        <!-- Sample Assignment & SDS Request Buttons -->
+        <div class="flex gap-2 border-t border-zinc-800 pt-3">
+          <button onclick="assignConvertedSampleToPad()" id="btnAssignPad" disabled class="rubber-btn flex-1 py-2 text-xs font-bold text-emerald-400 rounded border border-emerald-500/40 opacity-50 cursor-not-allowed">
+            💾 Assign Converted Sample to Pad...
+          </button>
+          <button onclick="requestSDSSampleFromHardware()" class="rubber-btn px-3 py-2 text-xs font-bold text-amber-400 rounded border border-amber-500/40">
+            📥 Request SDS Dump From SU10
+          </button>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- Right Column: SU10 Tactile Hardware Interface & Sound Tweaker (5 Cols) -->
+    <aside class="lg:col-span-5 flex flex-col gap-4">
+      
+      <!-- Hardware Screen LCD & Bank Select -->
+      <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 shadow-xl flex flex-col gap-4">
+        
+        <!-- Retro LCD Display -->
+        <div class="lcd-screen rounded-lg p-3 font-mono border-2 border-zinc-800 flex flex-col gap-1">
+          <div class="flex justify-between text-xs opacity-80 border-b border-black/20 pb-1">
+            <span>SU10 REALTIME PARAMS</span>
+            <span id="lcdBankPad">BANK A : PAD 1</span>
+          </div>
+          <div class="text-lg font-bold tracking-wider py-1" id="lcdMainReadout">
+            P1: 1Shot  Cut: 127
+          </div>
+          <div class="flex justify-between text-[11px] opacity-90 font-semibold" id="lcdSubReadout">
+            Res: 064 | Vol: 127 | Pitch: 0
+          </div>
+        </div>
+
+        <!-- Bank Selector Row -->
+        <div class="grid grid-cols-4 gap-2">
+          <button onclick="selectBank('A')" id="bankBtnA" class="rubber-btn py-2 text-xs font-bold text-amber-400 rounded border border-amber-500/40 active">BANK A</button>
+          <button onclick="selectBank('B')" id="bankBtnB" class="rubber-btn py-2 text-xs font-bold text-zinc-400 rounded border border-zinc-700">BANK B</button>
+          <button onclick="selectBank('C')" id="bankBtnC" class="rubber-btn py-2 text-xs font-bold text-zinc-400 rounded border border-zinc-700">BANK C</button>
+          <button onclick="selectBank('D')" id="bankBtnD" class="rubber-btn py-2 text-xs font-bold text-zinc-400 rounded border border-zinc-700">BANK D</button>
+        </div>
+
+        <!-- 12 Physical Rubber Performance Pads Grid -->
+        <div class="grid grid-cols-3 gap-2.5 bg-zinc-950 p-3 rounded-xl border border-zinc-800">
+          <!-- Pads 1 through 12 -->
+          <button onclick="selectAndTriggerPad(1)" id="pad-1" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1 active">
+            <span class="text-xs font-bold text-zinc-200">PAD 1</span>
+            <span id="pad-mode-1" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+          <button onclick="selectAndTriggerPad(2)" id="pad-2" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1">
+            <span class="text-xs font-bold text-zinc-200">PAD 2</span>
+            <span id="pad-mode-2" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+          <button onclick="selectAndTriggerPad(3)" id="pad-3" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1">
+            <span class="text-xs font-bold text-zinc-200">PAD 3</span>
+            <span id="pad-mode-3" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+          <button onclick="selectAndTriggerPad(4)" id="pad-4" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1">
+            <span class="text-xs font-bold text-zinc-200">PAD 4</span>
+            <span id="pad-mode-4" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+          <button onclick="selectAndTriggerPad(5)" id="pad-5" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1">
+            <span class="text-xs font-bold text-zinc-200">PAD 5</span>
+            <span id="pad-mode-5" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+          <button onclick="selectAndTriggerPad(6)" id="pad-6" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1">
+            <span class="text-xs font-bold text-zinc-200">PAD 6</span>
+            <span id="pad-mode-6" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+          <button onclick="selectAndTriggerPad(7)" id="pad-7" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1">
+            <span class="text-xs font-bold text-zinc-200">PAD 7</span>
+            <span id="pad-mode-7" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+          <button onclick="selectAndTriggerPad(8)" id="pad-8" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1">
+            <span class="text-xs font-bold text-zinc-200">PAD 8</span>
+            <span id="pad-mode-8" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+          <button onclick="selectAndTriggerPad(9)" id="pad-9" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1">
+            <span class="text-xs font-bold text-zinc-200">PAD 9</span>
+            <span id="pad-mode-9" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+          <button onclick="selectAndTriggerPad(10)" id="pad-10" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1">
+            <span class="text-xs font-bold text-zinc-200">PAD 10</span>
+            <span id="pad-mode-10" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+          <button onclick="selectAndTriggerPad(11)" id="pad-11" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1">
+            <span class="text-xs font-bold text-zinc-200">PAD 11</span>
+            <span id="pad-mode-11" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+          <button onclick="selectAndTriggerPad(12)" id="pad-12" class="pad-btn p-3 rounded-lg border border-zinc-700/80 flex flex-col items-center justify-center gap-1">
+            <span class="text-xs font-bold text-zinc-200">PAD 12</span>
+            <span id="pad-mode-12" class="text-[9px] font-mono text-amber-400">1Shot</span>
+          </button>
+        </div>
+
+        <!-- 5 Native SU10 Loop Modes Selection -->
+        <div class="flex flex-col gap-1.5 border-t border-zinc-800 pt-3">
+          <span class="text-[10px] font-bold text-zinc-400 tracking-wider">SU10 PAD LOOP MODE</span>
+          <div class="grid grid-cols-5 gap-1.5">
+            <button onclick="setPadLoopMode('1Shot')" id="btnLoop1Shot" class="rubber-btn py-1.5 text-[11px] font-bold text-amber-400 rounded border border-amber-500/40">1Shot</button>
+            <button onclick="setPadLoopMode('WLoop')" id="btnLoopWLoop" class="rubber-btn py-1.5 text-[11px] font-bold text-zinc-400 rounded border border-zinc-700">WLoop</button>
+            <button onclick="setPadLoopMode('PLoop')" id="btnLoopPLoop" class="rubber-btn py-1.5 text-[11px] font-bold text-zinc-400 rounded border border-zinc-700">PLoop</button>
+            <button onclick="setPadLoopMode('RShot')" id="btnLoopRShot" class="rubber-btn py-1.5 text-[11px] font-bold text-zinc-400 rounded border border-zinc-700">RShot</button>
+            <button onclick="setPadLoopMode('RLoop')" id="btnLoopRLoop" class="rubber-btn py-1.5 text-[11px] font-bold text-zinc-400 rounded border border-zinc-700">RLoop</button>
+          </div>
+          <span id="loopModeDescription" class="text-[10px] text-zinc-500 italic mt-0.5">1Shot: Plays sample once completely upon trigger.</span>
+        </div>
+
+        <!-- Realtime Sound Parameter Sliders -->
+        <div class="flex flex-col gap-3 border-t border-zinc-800 pt-3">
+          <div>
+            <div class="flex justify-between text-xs font-semibold mb-1">
+              <span class="text-zinc-300">Filter Cutoff</span>
+              <span id="cutoffVal" class="text-amber-400 font-mono">127</span>
+            </div>
+            <input type="range" id="cutoffSlider" min="0" max="127" value="127" oninput="updatePadParam('cutoff', this.value)">
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs font-semibold mb-1">
+              <span class="text-zinc-300">Resonance</span>
+              <span id="resonanceVal" class="text-amber-400 font-mono">64</span>
+            </div>
+            <input type="range" id="resonanceSlider" min="0" max="127" value="64" oninput="updatePadParam('resonance', this.value)">
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs font-semibold mb-1">
+              <span class="text-zinc-300">Sample Pitch</span>
+              <span id="pitchVal" class="text-amber-400 font-mono">0</span>
+            </div>
+            <input type="range" id="pitchSlider" min="-12" max="12" value="0" oninput="updatePadParam('pitch', this.value)">
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs font-semibold mb-1">
+              <span class="text-zinc-300">Pad Volume</span>
+              <span id="volumeVal" class="text-amber-400 font-mono">127</span>
+            </div>
+            <input type="range" id="volumeSlider" min="0" max="127" value="127" oninput="updatePadParam('volume', this.value)">
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- Global Bulk Backup & MIDI Monitor Section -->
+  <footer class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 shadow-xl flex flex-col gap-3">
+    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-2">
+      <div class="flex items-center gap-2 text-xs font-bold text-zinc-300">
+        <span>⚙️</span> GLOBAL SYSTEM BULK BACKUP & MIDI MONITOR
+      </div>
+      <div class="flex gap-2 text-xs">
+        <button onclick="requestGlobalBulkDump()" class="rubber-btn px-3 py-1 rounded text-amber-400 font-semibold border border-amber-500/40">
+          📥 Backup SU10 System Memory
+        </button>
+        <button onclick="confirmAndSendBulkRestore()" class="rubber-btn px-3 py-1 rounded text-red-400 font-semibold border border-red-500/40">
+          ⚠️ Restore Global SysEx (.SYX)
+        </button>
+        <button onclick="clearSysExLog()" class="rubber-btn px-2.5 py-1 rounded text-zinc-400 border border-zinc-700">
+          Clear Monitor
+        </button>
+      </div>
+    </div>
+
+    <!-- SysEx Realtime Traffic Monitor -->
+    <div id="sysExLog" class="bg-zinc-950 rounded-lg p-3 h-28 overflow-y-auto font-mono text-[11px] text-zinc-400 flex flex-col gap-1 border border-zinc-800/80">
+      <div class="text-zinc-600">-- SU10 Web MIDI Monitor Ready --</div>
+    </div>
+  </footer>
+
+  <!-- Web MIDI & Audio Processing Engine Script -->
+  <script>
+    // --- SU10 Hardware Constants ---
+    const MAX_SU10_FLASH_RAM_BYTES = 393216; // 384 KB Non-volatile Memory Limit
+    const SU10_LOOP_MODES = {
+      '1Shot': { id: 0, desc: '1Shot: Plays sample once completely upon trigger.' },
+      'WLoop': { id: 1, desc: 'WLoop: Loops continuously between Loop Start and Loop End.' },
+      'PLoop': { id: 2, desc: 'PLoop: Pitch-shifted sustained loop mode.' },
+      'RShot': { id: 3, desc: 'RShot: Reverse 1Shot audio playback.' },
+      'RLoop': { id: 4, desc: 'RLoop: Reverse continuous loop playback.' }
+    };
+
+    // --- State Variables ---
+    let midiAccess = null;
+    let selectedMidiIn = null;
+    let selectedMidiOut = null;
+    let activeBank = 'A';
+    let activePad = 1;
+
+    let audioContext = null;
+    let originalAudioBuffer = null;
+    let convertedPcmData = null; // Unpacked 8-bit PCM for Web Audio preview
+    let convertedAdpcmData = null; // Encoded 4-bit ADPCM byte array
+    let normalizeVolume = true;
+
+    let trimStartSec = 0;
+    let trimEndSec = 1;
+    let loopStartSec = 0;
+    let loopEndSec = 1;
+
+    let currentPreviewSource = null;
+
+    // Pad State Storage
+    const padStates = {};
+    const bankNames = ['A', 'B', 'C', 'D'];
+
+    // Initialize state for all 48 pads (4 Banks x 12 Pads)
+    bankNames.forEach(b => {
+      for (let p = 1; p <= 12; p++) {
+        padStates[`${b}${p}`] = {
+          loopMode: '1Shot',
+          cutoff: 127,
+          resonance: 64,
+          pitch: 0,
+          volume: 127,
+          audioBuffer: null,
+          adpcmData: null
+        };
+      }
+    });
+
+    // --- Window Onload & Event Binding ---
+    window.onload = () => {
+      initWebMIDI();
+      setupKeyboardTriggers();
+      updateLCDReadout();
+      updateMemoryUsageMeter();
+
+      // Sync select menu with active pad
+      const targetSel = document.getElementById('targetPadSelect');
+      if (targetSel) {
+        targetSel.addEventListener('change', (e) => {
+          const bank = e.target.value.charAt(0);
+          const pad = parseInt(e.target.value.substring(1));
+          selectBank(bank);
+          selectPad(pad);
+        });
+      }
+    };
+
+    // --- Keyboard Shortcuts Mapping ---
+    function setupKeyboardTriggers() {
+      const keyMap = {
+        '1': 1, '2': 2, '3': 3, '4': 4,
+        '5': 5, '6': 6, '7': 7, '8': 8,
+        '9': 9, '0': 10, '-': 11, '=': 12
+      };
+
+      window.addEventListener('keydown', (e) => {
+        if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+
+        if (keyMap[e.key]) {
+          e.preventDefault();
+          selectAndTriggerPad(keyMap[e.key]);
+        }
+      });
+    }
+
+    // --- Web MIDI Integration ---
+    async function initWebMIDI() {
+      const inSelect = document.getElementById('midiInSelect');
+      const outSelect = document.getElementById('midiOutSelect');
+      
+      inSelect.innerHTML = '<option value="">Detecting...</option>';
+      outSelect.innerHTML = '<option value="">Detecting...</option>';
+
+      try {
+        if (!navigator.requestMIDIAccess) {
+          logSysEx('Web MIDI API is not supported in this browser.', 'err');
+          return;
+        }
+
+        midiAccess = await navigator.requestMIDIAccess({ sysex: true });
+        
+        // Populate MIDI Input Ports
+        inSelect.innerHTML = '<option value="">None / Disconnected</option>';
+        for (let input of midiAccess.inputs.values()) {
+          const opt = document.createElement('option');
+          opt.value = input.id;
+          opt.textContent = input.name;
+          inSelect.appendChild(opt);
+        }
+
+        // Populate MIDI Output Ports
+        outSelect.innerHTML = '<option value="">None / Disconnected</option>';
+        for (let output of midiAccess.outputs.values()) {
+          const opt = document.createElement('option');
+          opt.value = output.id;
+          opt.textContent = output.name;
+          outSelect.appendChild(opt);
+        }
+
+        inSelect.onchange = onMidiPortChange;
+        outSelect.onchange = onMidiPortChange;
+
+        // Auto-select first available ports
+        if (midiAccess.inputs.size > 0) {
+          inSelect.selectedIndex = 1;
+        }
+        if (midiAccess.outputs.size > 0) {
+          outSelect.selectedIndex = 1;
+        }
+
+        onMidiPortChange();
+        logSysEx('Web MIDI Initialized with SysEx permission.', 'sys');
+      } catch (err) {
+        logSysEx(`Web MIDI Init Error: ${err.message}`, 'err');
+      }
+    }
+
+    function onMidiPortChange() {
+      const inId = document.getElementById('midiInSelect').value;
+      const outId = document.getElementById('midiOutSelect').value;
+
+      const inLed = document.getElementById('midiInLed');
+      const outLed = document.getElementById('midiOutLed');
+
+      if (selectedMidiIn) {
+        selectedMidiIn.onmidimessage = null;
+      }
+
+      if (inId && midiAccess) {
+        selectedMidiIn = midiAccess.inputs.get(inId);
+        if (selectedMidiIn) {
+          selectedMidiIn.onmidimessage = handleIncomingMIDIMessage;
+          inLed.className = 'led-dot active-green';
+        } else {
+          inLed.className = 'led-dot';
+        }
+      } else {
+        selectedMidiIn = null;
+        inLed.className = 'led-dot';
+      }
+
+      if (outId && midiAccess) {
+        selectedMidiOut = midiAccess.outputs.get(outId);
+        outLed.className = selectedMidiOut ? 'led-dot active-green' : 'led-dot';
+      } else {
+        selectedMidiOut = null;
+        outLed.className = 'led-dot';
+      }
+    }
+
+    function handleIncomingMIDIMessage(event) {
+      const data = event.data;
+      if (!data || data.length === 0) return;
+
+      const status = data[0] & 0xf0;
+
+      // Handle MIDI Note On for live triggering and UI focus
+      if (status === 0x90 && data[2] > 0) {
+        const note = data[1]; // MIDI Note Number
+        const padIndex = (note - 36) % 12 + 1; // Map starting from C1 (36)
+        if (padIndex >= 1 && padIndex <= 12) {
+          selectAndTriggerPad(padIndex);
+        }
+      }
+
+      // Log SysEx Traffic
+      if (data[0] === 0xf0) {
+        const hexStr = Array.from(data).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+        logSysEx(`RX SysEx: ${hexStr}`, 'in');
+      }
+    }
+
+    // --- Audio File Handling & Waveform Editor ---
+    function getAudioContext() {
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+      return audioContext;
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      document.getElementById('dropZone').classList.add('border-amber-500');
+    }
+
+    function handleDragLeave(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      document.getElementById('dropZone').classList.remove('border-amber-500');
+    }
+
+    function handleFileDrop(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      document.getElementById('dropZone').classList.remove('border-amber-500');
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        loadAudioFile(files[0]);
+      }
+    }
+
+    function handleFileSelect(e) {
+      const files = e.target.files;
+      if (files && files.length > 0) {
+        loadAudioFile(files[0]);
+      }
+    }
+
+    async function loadAudioFile(file) {
+      try {
+        const ctx = getAudioContext();
+        const arrayBuffer = await file.arrayBuffer();
+        originalAudioBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+        document.getElementById('audioFileName').textContent = file.name;
+        
+        // Reset Trim and Loop Sliders
+        trimStartSec = 0;
+        trimEndSec = originalAudioBuffer.duration;
+        loopStartSec = 0;
+        loopEndSec = originalAudioBuffer.duration;
+
+        document.getElementById('trimStartSlider').value = 0;
+        document.getElementById('trimEndSlider').value = 1;
+        document.getElementById('loopStartSlider').value = 0;
+        document.getElementById('loopEndSlider').value = 1;
+
+        processAudioBuffer();
+      } catch (err) {
+        alert('Could not decode audio file: ' + err.message);
+      }
+    }
+
+    function toggleNormalize() {
+      normalizeVolume = !normalizeVolume;
+      const btn = document.getElementById('btnNormalize');
+      if (normalizeVolume) {
+        btn.textContent = '✓ Normalize Volume';
+        btn.className = 'w-full rubber-btn py-1.5 text-xs text-emerald-400 font-bold rounded border border-emerald-500/40';
+      } else {
+        btn.textContent = '✗ Off (Raw Volume)';
+        btn.className = 'w-full rubber-btn py-1.5 text-xs text-zinc-400 font-bold rounded border border-zinc-700';
+      }
+      processAudioBuffer();
+    }
+
+    function updateAudioTrim() {
+      if (!originalAudioBuffer) return;
+
+      const dur = originalAudioBuffer.duration;
+      const startRatio = parseFloat(document.getElementById('trimStartSlider').value);
+      const endRatio = parseFloat(document.getElementById('trimEndSlider').value);
+
+      if (startRatio >= endRatio) return;
+
+      trimStartSec = startRatio * dur;
+      trimEndSec = endRatio * dur;
+
+      // Restrict loop sliders within trim boundaries
+      loopStartSec = Math.max(trimStartSec, Math.min(loopStartSec, trimEndSec));
+      loopEndSec = Math.min(trimEndSec, Math.max(loopEndSec, trimStartSec));
+
+      document.getElementById('trimStartVal').textContent = trimStartSec.toFixed(3) + 's';
+      document.getElementById('trimEndVal').textContent = trimEndSec.toFixed(3) + 's';
+
+      processAudioBuffer();
+    }
+
+    function updateLoopPoints(triggerPlay = false) {
+      if (!originalAudioBuffer) return;
+
+      const dur = originalAudioBuffer.duration;
+      const loopStartRatio = parseFloat(document.getElementById('loopStartSlider').value);
+      const loopEndRatio = parseFloat(document.getElementById('loopEndSlider').value);
+
+      if (loopStartRatio >= loopEndRatio) return;
+
+      loopStartSec = loopStartRatio * dur;
+      loopEndSec = loopEndRatio * dur;
+
+      document.getElementById('loopStartVal').textContent = loopStartSec.toFixed(3) + 's';
+      document.getElementById('loopEndVal').textContent = loopEndSec.toFixed(3) + 's';
+
+      drawWaveform();
+
+      if (triggerPlay) {
+        playSU10LofiAudio();
+      }
+    }
+
+    function snapLoopPointsToNearestZero() {
+      if (!originalAudioBuffer) return;
+
+      const channelData = originalAudioBuffer.getChannelData(0);
+      const sampleRate = originalAudioBuffer.sampleRate;
+
+      const findZero = (targetTime) => {
+        let index = Math.floor(targetTime * sampleRate);
+        let searchWindow = Math.floor(sampleRate * 0.02); // 20ms window
+        let bestIndex = index;
+        let minVal = Math.abs(channelData[index] || 0);
+
+        for (let i = Math.max(0, index - searchWindow); i < Math.min(channelData.length, index + searchWindow); i++) {
+          if (Math.abs(channelData[i]) < minVal) {
+            minVal = Math.abs(channelData[i]);
+            bestIndex = i;
+          }
+        }
+        return bestIndex / sampleRate;
+      };
+
+      loopStartSec = findZero(loopStartSec);
+      loopEndSec = findZero(loopEndSec);
+
+      const dur = originalAudioBuffer.duration;
+      document.getElementById('loopStartSlider').value = loopStartSec / dur;
+      document.getElementById('loopEndSlider').value = loopEndSec / dur;
+      document.getElementById('loopStartVal').textContent = loopStartSec.toFixed(3) + 's';
+      document.getElementById('loopEndVal').textContent = loopEndSec.toFixed(3) + 's';
+
+      drawWaveform();
+      playSU10LofiAudio();
+    }
+
+    // --- Audio Resampling & 4-Bit ADPCM Quantization Engine ---
+    function processAudioBuffer() {
+      if (!originalAudioBuffer) return;
+
+      const targetSampleRate = parseInt(document.getElementById('sampleRateSelect').value);
+      const origChannel = originalAudioBuffer.getChannelData(0);
+      const origRate = originalAudioBuffer.sampleRate;
+
+      const trimStartSample = Math.floor(trimStartSec * origRate);
+      const trimEndSample = Math.floor(trimEndSec * origRate);
+      const slicedLength = Math.max(1, trimEndSample - trimStartSample);
+
+      const durationSec = slicedLength / origRate;
+      const targetLength = Math.floor(durationSec * targetSampleRate);
+
+      // Slicing and Normalization
+      let sliced = new Float32Array(slicedLength);
+      let maxAmp = 0;
+      for (let i = 0; i < slicedLength; i++) {
+        const val = origChannel[trimStartSample + i] || 0;
+        sliced[i] = val;
+        if (Math.abs(val) > maxAmp) maxAmp = Math.abs(val);
+      }
+
+      if (normalizeVolume && maxAmp > 0) {
+        const normFactor = 0.98 / maxAmp;
+        for (let i = 0; i < slicedLength; i++) {
+          sliced[i] *= normFactor;
+        }
+      }
+
+      // Linear Resampling & 8-Bit Unpacked PCM
+      convertedPcmData = new Uint8Array(targetLength);
+      const step = slicedLength / targetLength;
+
+      for (let i = 0; i < targetLength; i++) {
+        const origIdx = Math.floor(i * step);
+        const sampleFloat = sliced[origIdx] || 0;
+        // Map [-1.0, 1.0] to 8-bit unsigned [0, 255]
+        convertedPcmData[i] = Math.floor((sampleFloat + 1.0) * 127.5);
+      }
+
+      // Encode down to 4-bit ADPCM (2 samples per byte -> 4:1 compression ratio)
+      const adpcmLength = Math.ceil(targetLength / 2);
+      convertedAdpcmData = new Uint8Array(adpcmLength);
+
+      for (let i = 0; i < adpcmLength; i++) {
+        const sample1 = convertedPcmData[i * 2] || 128;
+        const sample2 = convertedPcmData[i * 2 + 1] || 128;
+
+        // Compress 8-bit [0..255] to 4-bit nibbles [0..15]
+        const nibble1 = (sample1 >> 4) & 0x0f;
+        const nibble2 = (sample2 >> 4) & 0x0f;
+
+        convertedAdpcmData[i] = (nibble1 << 4) | nibble2;
+      }
+
+      // Update UI Metrics
+      document.getElementById('audioTrimInfo').textContent = 
+        `Dur: ${durationSec.toFixed(2)}s | Rate: ${targetSampleRate}Hz (4-bit) | Size: ${(adpcmLength / 1024).toFixed(1)} KB`;
+
+      // Enable Assignment Button if within limits
+      const assignBtn = document.getElementById('btnAssignPad');
+      if (adpcmLength <= MAX_SU10_FLASH_RAM_BYTES) {
+        assignBtn.disabled = false;
+        assignBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+      } else {
+        assignBtn.disabled = true;
+        assignBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      }
+
+      drawWaveform();
+    }
+
+    function drawWaveform() {
+      const canvas = document.getElementById('waveformCanvas');
+      if (!canvas) return;
+
+      const ctx = canvas.getContext('2d');
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+
+      const w = canvas.width;
+      const h = canvas.height;
+
+      ctx.fillStyle = '#090a0f';
+      ctx.fillRect(0, 0, w, h);
+
+      // Center Line
+      ctx.strokeStyle = '#27272a';
+      ctx.beginPath();
+      ctx.moveTo(0, h / 2);
+      ctx.lineTo(w, h / 2);
+      ctx.stroke();
+
+      if (!originalAudioBuffer) {
+        ctx.fillStyle = '#52525b';
+        ctx.font = '12px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('No Audio Loaded', w / 2, h / 2 + 4);
+        return;
+      }
+
+      const channelData = originalAudioBuffer.getChannelData(0);
+      const totalSamples = channelData.length;
+      const step = Math.ceil(totalSamples / w);
+
+      // Waveform Outline
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      for (let i = 0; i < w; i++) {
+        const sampleIdx = Math.floor(i * step);
+        let min = 1.0;
+        let max = -1.0;
+
+        for (let j = 0; j < step; j++) {
+          const datum = channelData[sampleIdx + j] || 0;
+          if (datum < min) min = datum;
+          if (datum > max) max = datum;
+        }
+
+        const yMin = ((1 + min) * h) / 2;
+        const yMax = ((1 + max) * h) / 2;
+        ctx.fillRect(i, yMin, 1, Math.max(1, yMax - yMin));
+      }
+
+      const dur = originalAudioBuffer.duration;
+
+      // Render Loop Overlay Region
+      const lStartPx = (loopStartSec / dur) * w;
+      const lEndPx = (loopEndSec / dur) * w;
+
+      ctx.fillStyle = 'rgba(6, 182, 212, 0.2)';
+      ctx.fillRect(lStartPx, 0, Math.max(2, lEndPx - lStartPx), h);
+
+      // Loop Boundaries
+      ctx.strokeStyle = '#06b6d4';
+      ctx.lineWidth = 1.5;
+
+      ctx.beginPath();
+      ctx.moveTo(lStartPx, 0); ctx.lineTo(lStartPx, h);
+      ctx.moveTo(lEndPx, 0); ctx.lineTo(lEndPx, h);
+      ctx.stroke();
+    }
+
+    // --- Audio Playback Audition Engine ---
+    function stopActiveAudio() {
+      if (currentPreviewSource) {
+        try {
+          currentPreviewSource.stop();
+          currentPreviewSource.disconnect();
+        } catch (e) {}
+        currentPreviewSource = null;
+      }
+    }
+
+    function playOriginalAudio() {
+      if (!originalAudioBuffer) return;
+      stopActiveAudio();
+
+      const ctx = getAudioContext();
+      currentPreviewSource = ctx.createBufferSource();
+      currentPreviewSource.buffer = originalAudioBuffer;
+      currentPreviewSource.connect(ctx.destination);
+      currentPreviewSource.start(0, trimStartSec, trimEndSec - trimStartSec);
+    }
+
+    function playSU10LofiAudio() {
+      if (!convertedPcmData) return;
+      stopActiveAudio();
+
+      const ctx = getAudioContext();
+      const targetRate = parseInt(document.getElementById('sampleRateSelect').value);
+      const audioBuf = ctx.createBuffer(1, convertedPcmData.length, targetRate);
+      const channel = audioBuf.getChannelData(0);
+
+      // Convert Uint8 back to Float32 for Web Audio playback
+      for (let i = 0; i < convertedPcmData.length; i++) {
+        channel[i] = (convertedPcmData[i] / 127.5) - 1.0;
+      }
+
+      currentPreviewSource = ctx.createBufferSource();
+      currentPreviewSource.buffer = audioBuf;
+
+      // Handle Loop Mode Settings
+      const padState = padStates[`${activeBank}${activePad}`];
+      const mode = padState ? padState.loopMode : '1Shot';
+
+      if (['WLoop', 'PLoop', 'RLoop'].includes(mode)) {
+        currentPreviewSource.loop = true;
+        
+        // Calculate loop start and end in resampled buffer time
+        const durationSec = trimEndSec - trimStartSec;
+        if (durationSec > 0) {
+          const lStartRel = Math.max(0, (loopStartSec - trimStartSec) / durationSec);
+          const lEndRel = Math.min(1, (loopEndSec - trimStartSec) / durationSec);
+          
+          currentPreviewSource.loopStart = lStartRel * audioBuf.duration;
+          currentPreviewSource.loopEnd = lEndRel * audioBuf.duration;
+        }
+      }
+
+      currentPreviewSource.connect(ctx.destination);
+      currentPreviewSource.start();
+    }
+
+    // --- Pad Assignment & Memory Management ---
+    function assignConvertedSampleToPad() {
+      if (!convertedAdpcmData || !originalAudioBuffer) return;
+
+      const targetKey = document.getElementById('targetPadSelect').value;
+      const padState = padStates[targetKey];
+
+      if (!padState) return;
+
+      // Create an isolated AudioBuffer strictly matching the trimmed length
+      const ctx = getAudioContext();
+      const targetRate = parseInt(document.getElementById('sampleRateSelect').value);
+      const isolatedBuffer = ctx.createBuffer(1, convertedPcmData.length, targetRate);
+      const channel = isolatedBuffer.getChannelData(0);
+
+      for (let i = 0; i < convertedPcmData.length; i++) {
+        channel[i] = (convertedPcmData[i] / 127.5) - 1.0;
+      }
+
+      padState.audioBuffer = isolatedBuffer;
+      padState.adpcmData = new Uint8Array(convertedAdpcmData);
+
+      updateMemoryUsageMeter();
+      logSysEx(`Assigned converted sample to ${targetKey} (${(convertedAdpcmData.length / 1024).toFixed(1)} KB)`, 'sys');
+
+      // Select assigned pad in UI
+      const bank = targetKey.charAt(0);
+      const pad = parseInt(targetKey.substring(1));
+      selectBank(bank);
+      selectPad(pad);
+    }
+
+    function updateMemoryUsageMeter() {
+      let totalBytes = 0;
+      Object.keys(padStates).forEach(key => {
+        if (padStates[key].adpcmData) {
+          totalBytes += padStates[key].adpcmData.length;
+        }
+      });
+
+      const kbUsed = (totalBytes / 1024).toFixed(1);
+      const pct = Math.min(100, (totalBytes / MAX_SU10_FLASH_RAM_BYTES) * 100).toFixed(1);
+
+      document.getElementById('memUsageText').textContent = `${kbUsed} KB / 384.0 KB (${pct}%)`;
+      document.getElementById('memUsageBar').style.width = `${pct}%`;
+    }
+
+    // --- Pad Selection & Realtime Controls ---
+    function selectBank(bank) {
+      activeBank = bank;
+      bankNames.forEach(b => {
+        const btn = document.getElementById(`bankBtn${b}`);
+        if (b === bank) {
+          btn.className = 'rubber-btn py-2 text-xs font-bold text-amber-400 rounded border border-amber-500/40 active';
+        } else {
+          btn.className = 'rubber-btn py-2 text-xs font-bold text-zinc-400 rounded border border-zinc-700';
+        }
+      });
+
+      // Update Target Pad Dropdown Sync
+      document.getElementById('targetPadSelect').value = `${activeBank}${activePad}`;
+      updatePadDisplay();
+    }
+
+    function selectPad(padIndex) {
+      activePad = padIndex;
+      for (let i = 1; i <= 12; i++) {
+        const btn = document.getElementById(`pad-${i}`);
+        if (i === padIndex) {
+          btn.classList.add('border-amber-500', 'active');
+        } else {
+          btn.classList.remove('border-amber-500', 'active');
+        }
+      }
+
+      document.getElementById('targetPadSelect').value = `${activeBank}${activePad}`;
+      updatePadDisplay();
+    }
+
+    function selectAndTriggerPad(padIndex) {
+      selectPad(padIndex);
+
+      // Visual Trigger Flash
+      const btn = document.getElementById(`pad-${padIndex}`);
+      btn.classList.add('triggered');
+      setTimeout(() => btn.classList.remove('triggered'), 150);
+
+      // Trigger Pad Audio
+      triggerPadAudio(activeBank, padIndex);
+    }
+
+    function triggerPadAudio(bank, pad) {
+      const padState = padStates[`${bank}${pad}`];
+      if (!padState) return;
+
+      stopActiveAudio();
+
+      if (padState.audioBuffer) {
+        const ctx = getAudioContext();
+        currentPreviewSource = ctx.createBufferSource();
+        currentPreviewSource.buffer = padState.audioBuffer;
+
+        if (['WLoop', 'PLoop', 'RLoop'].includes(padState.loopMode)) {
+          currentPreviewSource.loop = true;
+        }
+
+        currentPreviewSource.connect(ctx.destination);
+        currentPreviewSource.start();
+      } else {
+        // Fallback to active converter audio preview if unassigned
+        playSU10LofiAudio();
+      }
+
+      // Transmit MIDI Note On SysEx/Control to hardware
+      sendPadSysExTrigger(bank, pad);
+    }
+
+    function updatePadDisplay() {
+      const key = `${activeBank}${activePad}`;
+      const state = padStates[key];
+      if (!state) return;
+
+      document.getElementById('lcdBankPad').textContent = `BANK ${activeBank} : PAD ${activePad}`;
+      document.getElementById('cutoffSlider').value = state.cutoff;
+      document.getElementById('cutoffVal').textContent = state.cutoff;
+
+      document.getElementById('resonanceSlider').value = state.resonance;
+      document.getElementById('resonanceVal').textContent = state.resonance;
+
+      document.getElementById('pitchSlider').value = state.pitch;
+      document.getElementById('pitchVal').textContent = state.pitch;
+
+      document.getElementById('volumeSlider').value = state.volume;
+      document.getElementById('volumeVal').textContent = state.volume;
+
+      setPadLoopMode(state.loopMode, false);
+      updateLCDReadout();
+    }
+
+    function setPadLoopMode(mode, transmit = true) {
+      const key = `${activeBank}${activePad}`;
+      if (padStates[key]) {
+        padStates[key].loopMode = mode;
+      }
+
+      // Update UI Buttons
+      Object.keys(SU10_LOOP_MODES).forEach(m => {
+        const btn = document.getElementById(`btnLoop${m}`);
+        if (m === mode) {
+          btn.className = 'rubber-btn py-1.5 text-[11px] font-bold text-amber-400 rounded border border-amber-500/40 active';
+        } else {
+          btn.className = 'rubber-btn py-1.5 text-[11px] font-bold text-zinc-400 rounded border border-zinc-700';
+        }
+      });
+
+      document.getElementById(`pad-mode-${activePad}`).textContent = mode;
+      document.getElementById('loopModeDescription').textContent = SU10_LOOP_MODES[mode].desc;
+
+      updateLCDReadout();
+
+      if (transmit) {
+        sendLoopModeSysEx(mode);
+      }
+    }
+
+    function updatePadParam(param, val) {
+      const key = `${activeBank}${activePad}`;
+      const numVal = parseInt(val);
+      if (padStates[key]) {
+        padStates[key][param] = numVal;
+      }
+
+      document.getElementById(`${param}Val`).textContent = numVal;
+      updateLCDReadout();
+
+      // Transmit Yamaha/Casio SU10 Parameter SysEx Message
+      sendParamSysEx(param, numVal);
+    }
+
+    function updateLCDReadout() {
+      const key = `${activeBank}${activePad}`;
+      const state = padStates[key];
+      if (!state) return;
+
+      document.getElementById('lcdMainReadout').textContent = 
+        `P${activePad}: ${state.loopMode} Cut: ${state.cutoff.toString().padStart(3, '0')}`;
+      
+      document.getElementById('lcdSubReadout').textContent = 
+        `Res: ${state.resonance.toString().padStart(3, '0')} | Vol: ${state.volume.toString().padStart(3, '0')} | Pitch: ${state.pitch}`;
+    }
+
+    // --- Hardware SysEx Transmission Protocol ---
+    function sendParamSysEx(param, value) {
+      if (!selectedMidiOut) return;
+
+      // SU10 SysEx Header: F0 44 (Yamaha/Casio) 14 (SU10 ID) ... F7
+      const paramAddressMap = {
+        cutoff: 0x10,
+        resonance: 0x11,
+        pitch: 0x12,
+        volume: 0x13
+      };
+
+      const addr = paramAddressMap[param] || 0x10;
+      const sysExMsg = new Uint8Array([0xF0, 0x44, 0x14, 0x00, addr, value & 0x7F, 0xF7]);
+
+      try {
+        selectedMidiOut.send(sysExMsg);
+        logSysEx(`TX SysEx (${param}): F0 44 14 00 ${addr.toString(16).padStart(2,'0')} ${(value & 0x7F).toString(16).padStart(2,'0')} F7`, 'out');
+      } catch (e) {
+        logSysEx(`SysEx Send Error: ${e.message}`, 'err');
+      }
+    }
+
+    function sendLoopModeSysEx(mode) {
+      if (!selectedMidiOut) return;
+      const modeId = SU10_LOOP_MODES[mode] ? SU10_LOOP_MODES[mode].id : 0;
+      const sysExMsg = new Uint8Array([0xF0, 0x44, 0x14, 0x00, 0x15, modeId, 0xF7]);
+
+      try {
+        selectedMidiOut.send(sysExMsg);
+        logSysEx(`TX LoopMode SysEx: F0 44 14 00 15 0${modeId} F7`, 'out');
+      } catch (e) {
+        logSysEx(`SysEx Send Error: ${e.message}`, 'err');
+      }
+    }
+
+    function sendPadSysExTrigger(bank, pad) {
+      if (!selectedMidiOut) return;
+
+      // Note On Message (Channel 1)
+      const noteNum = 36 + (pad - 1); // C1 baseline
+      const noteOnMsg = new Uint8Array([0x90, noteNum, 0x7F]);
+
+      try {
+        selectedMidiOut.send(noteOnMsg);
+        logSysEx(`TX Note On: 90 ${noteNum.toString(16).toUpperCase()} 7F`, 'out');
+      } catch (e) {
+        logSysEx(`MIDI Send Error: ${e.message}`, 'err');
+      }
+    }
+
+    function requestSDSSampleFromHardware() {
+      if (!selectedMidiOut) {
+        alert('Please connect and select a MIDI Output device first.');
+        return;
+      }
+
+      // Universal MIDI Sample Dump Standard Request (Header 0x03)
+      const padIdx = (bankNames.indexOf(activeBank) * 12) + (activePad - 1);
+      const sdsRequestMsg = new Uint8Array([0xF0, 0x7E, 0x00, 0x03, padIdx & 0x7F, 0x00, 0xF7]);
+
+      try {
+        selectedMidiOut.send(sdsRequestMsg);
+        logSysEx(`TX SDS Request (Pad ${activeBank}${activePad}): F0 7E 00 03 ${(padIdx & 0x7F).toString(16).padStart(2,'0')} 00 F7`, 'out');
+      } catch (e) {
+        logSysEx(`SDS Request Error: ${e.message}`, 'err');
+      }
+    }
+
+    function requestGlobalBulkDump() {
+      if (!selectedMidiOut) {
+        alert('Please connect a MIDI Output port.');
+        return;
+      }
+
+      const bulkRequest = new Uint8Array([0xF0, 0x44, 0x14, 0x00, 0x05, 0xF7]);
+      try {
+        selectedMidiOut.send(bulkRequest);
+        logSysEx('TX Global System Bulk Request: F0 44 14 00 05 F7', 'out');
+      } catch (e) {
+        logSysEx(`Bulk Request Error: ${e.message}`, 'err');
+      }
+    }
+
+    function confirmAndSendBulkRestore() {
+      if (!selectedMidiOut) {
+        alert('Please connect a MIDI Output port.');
+        return;
+      }
+
+      const confirmed = confirm(
+        "⚠️ WARNING: Restoring a Global Bulk Dump will completely overwrite all 48 pad assignments, sequences, and settings in your SU10 hardware!\n\nEnsure your SU10 is set to 'Dump Rcv?' in the Utility menu.\n\nDo you wish to proceed?"
+      );
+
+      if (confirmed) {
+        logSysEx('Bulk Restore initiated. Ready to transmit .SYX buffer...', 'sys');
+      }
+    }
+
+    // --- SysEx Log Monitor Utility ---
+    function logSysEx(msg, type = 'sys') {
+      const logContainer = document.getElementById('sysExLog');
+      if (!logContainer) return;
+
+      const line = document.createElement('div');
+      const timeStr = new Date().toLocaleTimeString();
+
+      if (type === 'in') {
+        line.className = 'text-emerald-400';
+      } else if (type === 'out') {
+        line.className = 'text-amber-400';
+      } else if (type === 'err') {
+        line.className = 'text-red-400 font-bold';
+      } else {
+        line.className = 'text-zinc-400';
+      }
+
+      line.textContent = `[${timeStr}] ${msg}`;
+      logContainer.appendChild(line);
+      logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    function clearSysExLog() {
+      const logContainer = document.getElementById('sysExLog');
+      if (logContainer) {
+        logContainer.innerHTML = '<div class="text-zinc-600">-- SU10 Web MIDI Monitor Cleared --</div>';
+      }
+    }
+  </script>
+</body>
+</html>
