@@ -118,6 +118,12 @@ The manual documents no messages for editing parameters (loop mode, volume, poin
 
 - **Audio**: 4-bit IMA-ADPCM, low nibble first, 2 samples per byte. The stored predictor and index are the decoder state at wave start. **Checked against the SU10's own MSDS output (C7 and D7): bit-exact**, to within 1 LSB of WAV rounding.
 - **Empty pads**, confirmed from a dump made with D2 and D3 deleted on the unit: a **zero-length record**. The SU10 writes it either as all zeros (D2) or as address 0 and length 0 with the old parameters left in (D3). **An empty pad keeps its Note# in the note table.** The editor keeps the unit's own empty records exactly as they are, and writes all zeros for pads you delete.
+- **What the SU10 does when it deletes a pad** (comparing Tonic 808 & TPhaze before and after deleting D2 and D3 on the unit):
+  - The record is cleared (D2 to all zeros, D3 to length 0 with its old parameters kept).
+  - The note table and songs are left as they are.
+  - Wave memory is compacted: every later sample moves down, and its record address drops by exactly the 789 bytes freed.
+  - Oddity: the moved **audio** didn't line up exactly with the new addresses. It sat 1 byte later than the records up to unit address 0x3E000 (an 8 KB flash boundary inside D7), with 24 scrambled bytes just before it, and 3 bytes earlier from there on. Because ADPCM resyncs, this may be barely audible, but it looks like a quirk of the unit's own compaction. The editor keeps such data exactly as dumped. Its own deletes and moves repack every sample in line with its record.
+  - System bytes 7EDh/7EEh and 7FBh also changed during the delete (66 00 → 33 03, 3F → 6A). Their meaning is unknown, and they're preserved.
 - **Free wave memory** is normally erased (FF). The unit can leave a stray byte after the last sample. The editor keeps those bytes whenever the samples end where the unit's did.
 - **Aborted captures**: if a capture holds an aborted start followed by a full dump (for example, header + 40 blocks, then a full dump), the editor uses the last complete dump. That applies to both editing and restoring, so a restore never sends the broken part. A new header during capture also restarts the capture.
 - **Round trip**: all four real dumps so far (the full 09:49 backup, Tonic 808 & TPhaze, Extra Long, and the one with empty pads) rebuild byte-identical.
