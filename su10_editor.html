@@ -553,6 +553,7 @@ table.sheet{border-collapse:collapse;width:100%;min-width:760px;font-size:12.5px
       <p class="small muted" style="margin-top:4px">Ports of Chris Johnson’s Airwindows <b>TapeHack2</b>, <b>Pockey2</b> and <b>Tube2</b> (MIT licence), run at the sample’s SU10 rate. <b>Preview</b> plays the result without changing anything. <b>Render</b> bakes it in and re-encodes the sample, and Undo takes it back.</p>
       <h3>Replace · move · delete</h3>
       <div class="row">
+        <button class="btn primary" id="suChop">✂ Chop…</button>
         <button class="btn" id="suRepFile">Replace from file…</button>
         <input type="file" id="suRepInput" accept="audio/*" hidden>
         <button class="btn" id="suRepPrep">Replace with Sample Prep result</button>
@@ -1100,7 +1101,7 @@ function stamp() { const d = new Date(), p = n => String(n).padStart(2, '0'); re
 function ask(html, okText = 'OK') {
   return new Promise(res => {
     $('modalBody').innerHTML = html; $('modalYes').textContent = okText; $('modalYes').disabled = false; $('modal').classList.add('on');
-    $('modal').querySelector('.dlg').classList.toggle('wide', /class="gtab/.test(html));
+    $('modal').querySelector('.dlg').classList.toggle('wide', /class="(gtab|chopdlg)/.test(html));
     const done = v => { $('modal').classList.remove('on'); $('modalYes').onclick = $('modalNo').onclick = null; res(v); };
     $('modalYes').onclick = () => done(true); $('modalNo').onclick = () => done(false);
   });
@@ -1883,7 +1884,7 @@ function suRenderSummary() {
   suRenderChanges();
   $('suSummary').innerHTML = `<dt>Samples</dt><dd>${su.slots.filter(Boolean).length} / 48</dd>
     <dt>System grade</dt><dd><select id="suSysGrade" class="gsel">${GRADE_NAMES.map((n, i) => `<option value="${i}"${i === g ? ' selected' : ''}>${n}</option>`).join('')}</select> · ${gradeRates[g].toLocaleString()} Hz (${gradeRates[g] === GRADE_DEFAULTS[g] ? GRADE_STATUS[g] : 'set by you'}) · pitch ${pitch >= 0 ? '+' : ''}${pitch}%
-      <button class="btn" id="suConvert" style="margin-left:8px;padding:3px 9px;font-size:12px">Convert dump grade…</button>${su.gradeUndo ? '<button class="btn" id="suConvertUndo" style="margin-left:6px;padding:3px 9px;font-size:12px">Undo grade conversion</button>' : ''}
+      <button class="btn" id="suConvert" style="margin-left:8px;padding:3px 9px;font-size:12px">Convert dump grade…</button>${su.gradeUndo ? '<button class="btn" id="suConvertUndo" style="margin-left:6px;padding:3px 9px;font-size:12px">Undo grade conversion</button>' : ''}${su.chopUndo ? '<button class="btn" id="suChopUndo" style="margin-left:6px;padding:3px 9px;font-size:12px">Undo chop</button>' : ''}
       <div class="small muted" style="font-family:inherit">The selector just tells the editor what the SU10 is set to, so samples play at that grade and pitch, as the unit does. <b>Convert dump grade…</b> re-encodes every sample at another grade so they keep their pitch. Use it to make room (Long → Extra Long frees about 27 %) or to raise quality.</div></dd>
     <dt>${su.blank ? 'Built from' : 'Checksums'}</dt><dd style="color:${su.bad ? 'var(--err)' : 'var(--ok)'}">${su.blank ? 'a folder, with songs and settings from the template' : su.bad ? su.bad + ' bad blocks' : 'all 1000 OK'}</dd>`;
   $('suMemBar').style.width = Math.min(100, used / SUK.WAVE_SIZE * 100) + '%';
@@ -1943,7 +1944,7 @@ function suRenderEditor() {
   $('suEditor').hidden = !su;
   if (!su) return;
   $('suEdTitle').textContent = padKey(suSel) + (pads[suSel].name ? ' · ' + pads[suSel].name : '');
-  const ctrls = ['suSt','suLp','suEd','suLm','suSm','suVol','suAlt','suPlay','suSnap','suFindLoop','suFindLoopS','suWav','suDel','suSwap','suStrip'];
+  const ctrls = ['suSt','suLp','suEd','suLm','suSm','suVol','suAlt','suPlay','suSnap','suFindLoop','suFindLoopS','suWav','suDel','suSwap','suStrip','suChop'];
   ctrls.forEach(id => $(id).disabled = !s);
   document.querySelectorAll('[data-fx]').forEach(b => b.disabled = !s);
   $('suUndo').disabled = !(s && s.undo.length);
@@ -2203,7 +2204,7 @@ function suReplace(k, chans, srcRate, label) {
   const raw = old ? old.raw.slice() : (su.slots.find(Boolean) || { raw: REC_TEMPLATE }).raw.slice();
   const s = { raw, order: old ? old.order : Infinity, p: 0, i: 0, reencoded: true, adpcm: null, pcm: null,
     start: 0, loop: 0, end: 0, lm: old ? old.lm : 0, sm: old ? old.sm : 0, vol: old ? old.vol : 100, alt: old ? old.alt : 0,
-    note: old ? old.note : pads[k].note, grade, pitch, stereoFlag: 1, edited: true, undo: old ? old.undo : [] };
+    note: old ? old.note : padNoteFor(k), grade, pitch, stereoFlag: 1, edited: true, undo: old ? old.undo : [] };
   if (old) suPushUndo(old, false);
   suSetAudio(s, f, null); s.start = 0; s.end = suNS(s) - 1; s.loop = 0;
   if (old) s.undo = old.undo;
@@ -2569,6 +2570,7 @@ async function suImport(allItems, targets, opts = {}) {
     </div>
     <p class="small">Choose the grade to store everything at. The SU10 plays every sample at one grade${opts.folder ? '' : ', so picking a different grade converts the whole dump to keep every sample in tune'}.</p>
     <div id="impTable"></div>
+    <div class="row" style="margin:8px 0 0"><button class="btn" id="impChop">✂ Chop ${allItems.length > 1 ? 'each sound' : 'this sound'} into slices instead…</button><span class="small muted">4/8/16/32 slices on sequential pads, cut at transients or on an even grid</span></div>
     ${allItems.length > 1 ? `<details class="small muted"><summary>Sounds (${allItems.length})</summary><div id="impList" class="mono"></div></details>` : ''}`, 'Add');
   let plans = null;
   const render = () => {
@@ -2586,7 +2588,12 @@ async function suImport(allItems, targets, opts = {}) {
   ['impStrip', 'impStripDb', 'impNorm'].forEach(id => $(id).addEventListener('change', render));
   $('modalBody').querySelectorAll('input[name=impOver],input[name=impMode]').forEach(r => r.addEventListener('change', render));
   render();
-  if (!await pr) { if (opts.onCancel) opts.onCancel(); return; }
+  let chopInstead = false;
+  $('impChop').onclick = () => { chopInstead = true; $('modalNo').click(); };
+  if (!await pr) {
+    if (chopInstead) { await suChopItems(allItems, opts.start !== undefined ? opts.start : (targets[0] || 0)); if (opts.onChop) opts.onChop(); return; }
+    if (opts.onCancel) opts.onCancel(); return;
+  }
   const g = +($('modalBody').querySelector('input[name=gpick]:checked') || { value: su.mem[SUK.SYS] & 3 }).value;
   const norm = $('impNorm').checked, skip = $('modalBody').querySelector('input[name=impOver]:checked').value === 'skip';
   if (g !== (su.mem[SUK.SYS] & 3)) await suConvertGrade(g);
@@ -2655,7 +2662,7 @@ async function suNewFromFiles(files, label, startK = 0) {
   su.orig = new Array(48).fill(null); su.origGrade = mem[SUK.SYS]; su.baseName = folder.replace(/[^\w.-]+/g, '_') || 'su10_new'; su.version = 0; su.savedAs = null; suSel = 0;
   const padsBefore = pads.map(x => Object.assign({}, x));
   for (let k = 0; k < 48; k++) Object.assign(pads[k], { name: '', note: 36 + k, loop: 'OShot', sound: 'Note', vol: 100, alt: 0, memo: '' });
-  await suImport(items, items.map((_, j) => startK + j).filter(x => x < 48), { folder, templateFrom: t.from, skipped, onCancel: () => { su = prev; padsBefore.forEach((x, k) => Object.assign(pads[k], x)); } });
+  await suImport(items, items.map((_, j) => startK + j).filter(x => x < 48), { folder, templateFrom: t.from, skipped, start: startK, onCancel: () => { su = prev; padsBefore.forEach((x, k) => Object.assign(pads[k], x)); } });
   if (su && su.blank && !su.slots.some(Boolean)) { su = prev; }
   savePads(); renderSheet(); refreshPads(); lcd.render(); suRenderAll(); showTab('mem');
 }
@@ -2936,6 +2943,271 @@ function awRender(name) {
   log(`${padKey(suSel)}: Airwindows ${name} rendered (${desc})${clipped ? `, ${clipped} samples clipped. Lower the output or input` : ''}`, clipped ? 'err' : 'sys');
   lcd.msg(name.slice(0, 12), 'rendered', 1200);
 }
+
+/* =========================================================================
+   CHOP MODE — slice one sound across 4/8/16/32 sequential pads
+   cuts: transient detection or an even grid, snapped to zero crossings
+   play: Choke (one alt group, one-shot) · Choke + loop · Loop · One-shot
+   Chopping an existing pad copies its ADPCM bytes exactly (no re-encode) unless fades are on.
+   ========================================================================= */
+function padNoteFor(k) {      // a pad without a Note# gets the default (C1 + k) if nobody else uses it
+  if (pads[k].note !== null && pads[k].note !== undefined) return pads[k].note;
+  const d = 36 + k; return pads.some((p, j) => j !== k && p.note === d) ? null : d;
+}
+function detectOnsets(f, sr, sens = 0.75) {      // sens 0..1 → rise threshold; reference = loudest frame in the previous 40 ms
+  const thr = 0.1 + (1 - sens) * 1.4;
+  const hop = Math.max(32, Math.round(sr * 0.004)), win = hop * 2, n = f.length, frames = Math.max(0, Math.floor((n - win) / hop) + 1);
+  const le = new Float32Array(frames), en = new Float32Array(frames); let maxE = 0;
+  for (let j = 0; j < frames; j++) {
+    let e = 0; const a = j * hop;
+    for (let i = a + 1; i < a + win; i++) { const d = f[i] - f[i - 1]; e += d * d + 0.25 * f[i] * f[i]; }
+    en[j] = e; if (e > maxE) maxE = e; le[j] = Math.log(1e-10 + e);
+  }
+  const odf = new Float32Array(frames);
+  const L = Math.max(3, Math.round(0.04 * sr / hop));
+  for (let j = 1; j < frames; j++) { let ref = -1e9; for (let q = Math.max(0, j - L); q < j; q++) if (le[q] > ref) ref = le[q]; odf[j] = Math.max(0, le[j] - ref) * Math.min(1, Math.sqrt(en[j] / (maxE || 1)) * 4); }
+  const out = [];
+  for (let j = 1; j < frames - 1; j++) if (odf[j] > thr && odf[j] >= odf[j - 1] && odf[j] > odf[j + 1]) out.push({ pos: j * hop, s: odf[j] });
+  return out;
+}
+function zeroCross(f, p, maxD, backOnly) {   // nearest sign change (preferring just before p when backOnly)
+  const n = f.length; p = clamp(Math.round(p), 1, n - 1);
+  for (let d = 0; d <= maxD; d++) {
+    const a = p - d; if (a > 0 && ((f[a - 1] < 0) !== (f[a] < 0))) return Math.abs(f[a - 1]) < Math.abs(f[a]) ? a - 1 : a;
+    if (!backOnly) { const b = p + d; if (b < n && b > 0 && ((f[b - 1] < 0) !== (f[b] < 0))) return Math.abs(f[b - 1]) < Math.abs(f[b]) ? b - 1 : b; }
+  }
+  return p;
+}
+function chopCuts(f, sr, o) {     // → sorted interior cut points (N−1 of them)
+  const n = f.length, N = o.n, minLen = Math.max(256, Math.round(o.minGapMs / 1000 * sr));
+  let cuts = [];
+  if (o.method === 'grid') {
+    for (let k = 1; k < N; k++) cuts.push(Math.round(k * n / N));
+    if (o.zero) cuts = cuts.map(c => zeroCross(f, c, Math.round(sr * 0.006), false));
+  } else {
+    const on = detectOnsets(f, sr, o.sens).filter(x => x.pos > minLen && x.pos < n - minLen).sort((a, b) => b.s - a.s);
+    for (const x of on) { if (cuts.length >= N - 1) break; if (cuts.every(c => Math.abs(c - x.pos) >= minLen)) cuts.push(x.pos); }
+    cuts.sort((a, b) => a - b);
+    while (cuts.length < N - 1) {           // not enough transients: split the longest slice
+      const b = [0, ...cuts, n]; let bi = 0, bl = 0;
+      for (let i = 0; i < b.length - 1; i++) if (b[i + 1] - b[i] > bl) { bl = b[i + 1] - b[i]; bi = i; }
+      if (bl < 2 * minLen) break;
+      cuts.push(Math.round((b[bi] + b[bi + 1]) / 2)); cuts.sort((a, b) => a - b);
+    }
+    if (o.zero) cuts = cuts.map(c => zeroCross(f, c, Math.round(sr * 0.008), true));   // cut just before the attack
+  }
+  if (o.even) cuts = cuts.map(c => c - (c & 1));
+  cuts = [...new Set(cuts)].filter(c => c >= 256 && c <= n - 256).sort((a, b) => a - b);
+  for (let i = cuts.length - 1; i > 0; i--) if (cuts[i] - cuts[i - 1] < 256) cuts.splice(i, 1);
+  return cuts;
+}
+function imaStates(bytes, p, i) {     // decoder state before each byte (= before each even sample)
+  const P = new Int32Array(bytes.length + 1), I = new Uint8Array(bytes.length + 1);
+  P[0] = p; I[0] = i;
+  for (let b = 0; b < bytes.length; b++) {
+    for (let h = 0; h < 2; h++) {
+      const nb = h ? bytes[b] >> 4 : bytes[b] & 15, st = IMA_STEP[i]; let d = st >> 3;
+      if (nb & 4) d += st; if (nb & 2) d += st >> 1; if (nb & 1) d += st >> 2;
+      p += (nb & 8) ? -d : d; if (p > 32767) p = 32767; else if (p < -32768) p = -32768;
+      i += IMA_IDX[nb]; if (i < 0) i = 0; else if (i > 88) i = 88;
+    }
+    P[b + 1] = p; I[b + 1] = i;
+  }
+  return { P, I };
+}
+function findRun(N, from, free) {   // first run of N consecutive free pads, searching from 'from' then from A1
+  for (const start of [from, 0]) for (let s = start; s + N <= 48; s++) { let ok = true; for (let j = s; j < s + N; j++) if (!free(j)) { ok = false; break; } if (ok) return s; }
+  return -1;
+}
+const CHOP_MODES = { choke: { lm: 0, sm: 2, choke: true, label: 'Choke' }, chokeloop: { lm: 1, sm: 0, choke: true, label: 'Choke + loop' }, loop: { lm: 1, sm: 1, choke: false, label: 'Loop' }, oneshot: { lm: 0, sm: 2, choke: false, label: 'One-shot' } };
+let chopPrefs = Object.assign({ n: 8, method: 'transient', sens: 0.75, zero: true, minGapMs: 40, mode: 'choke', sm: null, fade: false, replaceSrc: true }, store.get('chopPrefs', {}));
+
+function chopSourceFromPad(k) {
+  const s = su.slots[k], a0 = s.start - (s.start & 1), b0 = s.end + 1;
+  const pcm = suPCM(s), f = new Float32Array(b0 - a0); for (let i = 0; i < f.length; i++) f[i] = pcm[a0 + i] / 32768;
+  return { name: pads[k].name || padKey(k), f, rate: suSysRate(), pad: k, a0, s, vol: s.vol };
+}
+function chopSourceFromItem(it) {
+  const mono = it.chans.length > 1 ? it.chans[0].map((v, i) => (v + it.chans[1][i]) / 2) : it.chans[0];
+  let f = resample(mono, it.rate, suSysRate()); let pk = 0; for (const v of f) pk = Math.max(pk, Math.abs(v)); if (pk > 1) f = f.map(v => v / pk);
+  return { name: it.name.replace(/\.[^.]+$/, ''), f, rate: suSysRate(), pad: null, vol: 100 };
+}
+function chopPlan(src, o, from) {
+  const cuts = chopCuts(src.f, src.rate, Object.assign({}, o, { even: src.pad !== null && !o.fade }));
+  const bounds = [0, ...cuts, src.f.length], N = bounds.length - 1;
+  const srcFree = src.pad !== null && o.replaceSrc;
+  const free = j => !su.slots[j] || (srcFree && j === src.pad) || (o.taken && o.taken.has(j) ? false : false);
+  let start = findRun(N, from, j => free(j) && !(o.taken && o.taken.has(j)));
+  let replacing = [];
+  if (start < 0) { start = Math.min(from, 48 - N); replacing = []; for (let j = start; j < start + N; j++) if (su.slots[j] && !(srcFree && j === src.pad)) replacing.push(j); }
+  const targets = Array.from({ length: N }, (_, j) => start + j);
+  const need = bounds.slice(1).reduce((t, b, j) => t + Math.ceil((b - bounds[j]) / 2), 0);
+  let freed = targets.reduce((t, k) => t + (su.slots[k] && !(srcFree && k === src.pad) ? su.slots[k].adpcm.length : 0), 0);
+  if (srcFree) freed += src.s.adpcm.length;
+  const free0 = SUK.WAVE_SIZE - suUsed() + freed;
+  return { cuts, bounds, N, targets, replacing, need, free: free0, fits: need <= free0, start };
+}
+function drawChop(canvas, src, plan, hover) {
+  const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight; if (!w) return;
+  canvas.width = w * dpr; canvas.height = h * dpr; const g = canvas.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#0e1014'; g.fillRect(0, 0, w, h);
+  const f = src.f, n = f.length, X = i => i / n * w, B = plan.bounds;
+  for (let j = 0; j < plan.N; j++) { g.fillStyle = j === hover ? 'rgba(242,181,68,.18)' : (j % 2 ? 'rgba(255,255,255,.03)' : 'rgba(255,255,255,.07)'); g.fillRect(X(B[j]), 0, X(B[j + 1]) - X(B[j]), h); }
+  g.fillStyle = '#f2b544'; const step = n / w;
+  for (let x = 0; x < w; x++) { let mx = 0; const a = Math.floor(x * step), b = Math.max(a + 1, Math.floor((x + 1) * step)); for (let i = a; i < b && i < n; i++) { const v = Math.abs(f[i]); if (v > mx) mx = v; } const y = mx * h * 0.45; g.fillRect(x, h / 2 - y, 1, Math.max(1, 2 * y)); }
+  g.font = 'bold 10px sans-serif'; g.textAlign = 'left';
+  for (let j = 0; j < plan.N; j++) {
+    const x = X(B[j]);
+    if (j) { g.fillStyle = '#ff6b5e'; g.fillRect(x - 1, 0, 2, h); }
+    g.fillStyle = '#fff'; g.fillText(`${j + 1}${plan.targets[j] !== undefined ? ' ' + padKey(plan.targets[j]) : ''}`, x + 3, 11);
+  }
+}
+async function suChopDialog(src, from, opts = {}) {
+  let o = Object.assign({}, chopPrefs), plan = null, hover = -1, manual = null;
+  const srcTxt = src.pad !== null ? `${padKey(src.pad)} (${(src.f.length / src.rate).toFixed(2)} s, StPnt–EdPnt)` : `${escH(src.name)} (${(src.f.length / src.rate).toFixed(2)} s, stored at ${GRADE_NAMES[su.mem[SUK.SYS] & 3]})`;
+  const pr = ask(`<div class="chopdlg"><h2>✂ Chop ${srcTxt}${opts.queue ? ` <span class="muted small">(${opts.queue})</span>` : ''}</h2>
+    <canvas id="chopWave" style="width:100%;height:150px;display:block;border:1px solid var(--line);border-radius:8px;cursor:pointer;touch-action:none"></canvas>
+    <div class="small muted" style="margin:4px 0 8px">Click a slice to hear it. Drag a red cut line to move it (Shift snaps it to a zero crossing).</div>
+    <div class="row">
+      <label class="field">Slices <select id="chN">${[4, 8, 16, 32].map(v => `<option${v === o.n ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="field">Cut at <select id="chM"><option value="transient"${o.method === 'transient' ? ' selected' : ''}>transients</option><option value="grid"${o.method === 'grid' ? ' selected' : ''}>even grid (for loops)</option></select></label>
+      <label class="field">sensitivity <input type="range" id="chS" min="0" max="1" step="0.05" value="${o.sens}" style="width:90px;accent-color:var(--accent)"></label>
+      <label class="field">min gap <input type="number" id="chGap" value="${o.minGapMs}" min="12" max="2000" style="width:62px"> ms</label>
+      <label class="chk"><input type="checkbox" id="chZ"${o.zero ? ' checked' : ''}> snap to zero crossings</label>
+      <label class="chk"><input type="checkbox" id="chF"${o.fade ? ' checked' : ''}> 2 ms fade at slice ends${src.pad !== null ? ' (re-encodes)' : ''}</label>
+    </div>
+    <div class="row"><span class="small">Play:</span>${Object.entries(CHOP_MODES).map(([k, m]) => `<label class="chk"><input type="radio" name="chMode" value="${k}"${o.mode === k ? ' checked' : ''}> ${m.label}</label>`).join('')}
+      <label class="field">SdMode <select id="chSm">${SOUND_MODES.map((m, i) => `<option value="${i}">${m}</option>`).join('')}</select></label></div>
+    ${src.pad !== null ? `<div class="row"><label class="chk"><input type="checkbox" id="chRep"${o.replaceSrc ? ' checked' : ''}> free ${padKey(src.pad)}'s memory, so slice 1 can go on ${padKey(src.pad)}</label></div>` : ''}
+    <div id="chInfo" class="small" style="margin-top:6px"></div></div>`, 'Chop');
+  const cv = $('chopWave');
+  const smDefault = () => CHOP_MODES[o.mode].sm;
+  const read = () => {
+    o.n = +$('chN').value; o.method = $('chM').value; o.sens = +$('chS').value; $('chS').disabled = o.method !== 'transient'; o.minGapMs = clamp(+$('chGap').value || 40, 12, 2000); o.zero = $('chZ').checked; o.fade = $('chF').checked;
+    o.mode = $('modalBody').querySelector('input[name=chMode]:checked').value; if ($('chRep')) o.replaceSrc = $('chRep').checked;
+  };
+  const update = (recut) => {
+    if (recut) manual = null;
+    plan = chopPlan(src, o, from);
+    if (manual) { plan.bounds = [0, ...manual, src.f.length]; plan.cuts = manual.slice(); }
+    const used = new Set(plan.targets);
+    const altUsed = new Set(su.slots.map((s, k) => s && !used.has(k) && !(src.pad === k && o.replaceSrc) ? s.alt : 0).filter(Boolean));
+    plan.alt = CHOP_MODES[o.mode].choke ? ([1, 2, 3].find(g => !altUsed.has(g)) || 1) : 0;
+    const kb = b => (b / 1024).toFixed(1) + ' KB';
+    const runTxt = `${padKey(plan.targets[0])}–${padKey(plan.targets[plan.N - 1])}`;
+    $('chInfo').innerHTML = `<b>${plan.N} slices</b> → ${runTxt}${plan.replacing.length ? ` · <span style="color:var(--err)">no ${plan.N} empty pads in a row, so this replaces ${plan.replacing.map(padKey).join(', ')}</span>` : ' · all empty' + (src.pad !== null && o.replaceSrc && used.has(src.pad) ? ` (slice ${plan.targets.indexOf(src.pad) + 1} takes ${padKey(src.pad)})` : '')}
+      · ${CHOP_MODES[o.mode].label}${plan.alt ? ` (AltGrp ${plan.alt}${altUsed.has(plan.alt) ? ', <span style="color:var(--err)">already shared with other pads</span>' : ''})` : ''}
+      · needs ${kb(plan.need)} of ${kb(plan.free)} free${plan.fits ? '' : ' · <b style="color:var(--err)">doesn’t fit: use fewer slices, crop the source or free memory</b>'}`
+      + (plan.N < o.n ? ` · <span style="color:var(--err)">only ${plan.N} slices fit this length</span>` : '')
+      + (src.pad !== null && o.replaceSrc && !used.has(src.pad) ? ` · <span style="color:var(--err)">${padKey(src.pad)} will be left empty (unverified empty-pad format)</span>` : '');
+    if (o.method === 'transient') {
+      if (src._on === undefined || src._gap !== o.minGapMs || src._sens !== o.sens) { const ml = Math.max(256, Math.round(o.minGapMs / 1000 * src.rate)), sorted = detectOnsets(src.f, src.rate, o.sens).filter(x => x.pos > ml).sort((x, y) => y.s - x.s), kept = []; for (const x of sorted) if (kept.every(c => Math.abs(c - x.pos) >= ml)) kept.push(x.pos); src._on = kept.length + 1; src._gap = o.minGapMs; src._sens = o.sens; }
+      $('chInfo').innerHTML += ` · <span class="muted">${src._on} hit${src._on === 1 ? '' : 's'} found${src._on > plan.N ? `: ${plan.N} slices keep the strongest, so choose more slices to cut at all of them` : src._on < plan.N ? ', so the rest are split evenly' : ''}</span>`;
+    }
+    $('modalYes').disabled = !plan.fits; $('modalYes').textContent = `Chop into ${plan.N}`;
+    drawChop(cv, src, plan, hover);
+  };
+  ['chN', 'chM', 'chS', 'chGap', 'chZ', 'chF'].forEach(id => $(id).addEventListener('change', () => { read(); update(true); }));
+  $('modalBody').querySelectorAll('input[name=chMode]').forEach(r => r.addEventListener('change', () => { read(); $('chSm').value = smDefault(); update(false); }));
+  if ($('chRep')) $('chRep').addEventListener('change', () => { read(); update(false); });
+  $('chSm').value = o.sm !== null && o.sm !== undefined && o.mode === chopPrefs.mode ? o.sm : smDefault();
+  let drag = -1;
+  const posAt = e => { const r = cv.getBoundingClientRect(); return clamp((e.clientX - r.left) / r.width, 0, 1) * src.f.length; };
+  cv.addEventListener('pointerdown', e => {
+    const p = posAt(e), r = cv.getBoundingClientRect(), pxPer = r.width / src.f.length;
+    const ci = plan.cuts.findIndex(c => Math.abs(c - p) * pxPer < 6);
+    if (ci >= 0) { drag = ci; manual = manual || plan.cuts.slice(); try { cv.setPointerCapture(e.pointerId); } catch (err) {} return; }
+    const j = plan.bounds.findIndex((b, i) => i < plan.N && p >= b && p < plan.bounds[i + 1]);
+    if (j >= 0) { hover = j; drawChop(cv, src, plan, hover); chopAudition(src, plan.bounds[j], plan.bounds[j + 1]); }
+  });
+  cv.addEventListener('pointermove', e => {
+    if (drag < 0) return;
+    let p = Math.round(posAt(e)); const lo = (drag ? manual[drag - 1] : 0) + 256, hi = (drag < manual.length - 1 ? manual[drag + 1] : src.f.length) - 256;
+    if (e.shiftKey) p = zeroCross(src.f, p, Math.round(src.rate * 0.01), false);
+    p = clamp(p, lo, hi); if (src.pad !== null && !o.fade) p -= p & 1;
+    manual[drag] = p; plan.cuts = manual.slice(); plan.bounds = [0, ...manual, src.f.length]; drawChop(cv, src, plan, hover);
+  });
+  const endDrag = () => { if (drag >= 0) { drag = -1; const keep = manual; update(false); manual = keep; plan.cuts = manual.slice(); plan.bounds = [0, ...manual, src.f.length]; update(false); } };
+  cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+  update(true);
+  if (opts.auto) { $('modalYes').click(); }
+  const ok = await pr;
+  chopAudStop();
+  if (!ok) return null;
+  read(); o.sm = +$('chSm').value;
+  chopPrefs = Object.assign({}, o); delete chopPrefs.taken; store.set('chopPrefs', chopPrefs);
+  return { o, plan };
+}
+let chopVoice = null;
+function chopAudStop() { if (chopVoice) { try { chopVoice.stop(); } catch (e) {} chopVoice = null; } }
+function chopAudition(src, a, b) {
+  chopAudStop(); const ctx = ac(), buf = ctx.createBuffer(1, b - a, Math.round(clamp(src.rate, 3000, 192000)));
+  buf.getChannelData(0).set(src.f.subarray(a, b)); const s = ctx.createBufferSource(); s.buffer = buf; s.connect(ctx.destination); s.start(); chopVoice = s;
+}
+function chopApply(src, o, plan) {
+  if (!su.chopUndo || !su.chopUndoFresh) su.chopUndo = { slots: su.slots.map(x => x && Object.assign({}, x, { undo: x.undo.slice() })), pads: pads.map(x => Object.assign({}, x)) };
+  const { grade, pitch } = suSysGradePitch(), mode = CHOP_MODES[o.mode], B = plan.bounds;
+  const states = src.pad !== null && !o.fade ? imaStates(src.s.adpcm, src.s.p, src.s.i) : null;
+  const tmplRaw = src.pad !== null ? src.s.raw : (su.slots.find(Boolean) || { raw: REC_TEMPLATE }).raw;
+  if (src.pad !== null && o.replaceSrc) { su.slots[src.pad] = null; }
+  for (let j = 0; j < plan.N; j++) {
+    const k = plan.targets[j], a = B[j], b = B[j + 1];
+    let adpcm, p, i;
+    if (states) {      // byte-exact copy of the original ADPCM stream
+      const ba = (src.a0 + a) >> 1, bb = Math.ceil((src.a0 + b) / 2);
+      adpcm = src.s.adpcm.slice(ba, bb); p = states.P[ba]; i = states.I[ba];
+    } else {
+      const f = src.f.slice(a, b);
+      if (o.fade) { const L = Math.min(f.length >> 2, Math.round(src.rate * 0.002)); for (let q = 0; q < L; q++) { f[q] *= q / L; f[f.length - 1 - q] *= q / L; } }
+      const e = imaEncode(f); adpcm = e.bytes; p = e.p0; i = e.i0;
+    }
+    const old = su.slots[k];
+    const s = { raw: (old ? old.raw : tmplRaw).slice(), order: Infinity, p, i, reencoded: true, adpcm, pcm: null,
+      start: 0, loop: 0, end: adpcm.length * 2 - 1, lm: mode.lm, sm: o.sm, vol: src.vol, alt: plan.alt,
+      note: old ? old.note : padNoteFor(k), grade, pitch, stereoFlag: 1, edited: true, undo: [] };
+    if (states && b < src.f.length) s.end = Math.min(s.end, b - a - 1 + ((src.a0 + a) & 1));
+    su.slots[k] = s; pads[k].name = `${src.name.slice(0, 12)} ${j + 1}`;
+    Object.assign(pads[k], { note: s.note, loop: LOOP_MODES[s.lm], sound: SOUND_MODES[s.sm], vol: s.vol, alt: s.alt });
+    audition.invalidate(k);
+  }
+  su.dirty = true; savePads();
+  log(`Chopped ${src.pad !== null ? padKey(src.pad) : src.name} into ${plan.N} slices on ${padKey(plan.targets[0])}–${padKey(plan.targets[plan.N - 1])} · ${mode.label}${plan.alt ? ` (AltGrp ${plan.alt})` : ''}, ${SOUND_MODES[o.sm]} · ${states ? 'byte-exact' : 're-encoded'} · ${((SUK.WAVE_SIZE - suUsed()) / 1024).toFixed(1)} KB free`);
+  return plan.targets;
+}
+async function suChopPad(k) {
+  if (!su || !su.slots[k]) return;
+  const src = chopSourceFromPad(k), r = await suChopDialog(src, k);
+  if (!r) return;
+  su.chopUndoFresh = false;
+  const t = chopApply(src, r.o, r.plan);
+  if (Math.floor(t[0] / 12) !== bank) setBank(Math.floor(t[0] / 12));
+  suSel = -1; selectPad(t[0]); renderSheet(); refreshPads(); suRenderAll(); lcd.msg('Chopped', `${t.length} slices`, 1500);
+}
+async function suChopItems(items, from) {
+  su.chopUndoFresh = false; let next = from, auto = false, last = null;
+  for (let q = 0; q < items.length; q++) {
+    const src = chopSourceFromItem(items[q]);
+    let r;
+    if (auto && last) { const plan = chopPlan(src, last, next); if (!plan.fits) { log(`${src.name}: no room for its slices, skipped`, 'err'); continue; } const used = new Set(plan.targets); const altUsed = new Set(su.slots.map((s, k) => s && !used.has(k) ? s.alt : 0).filter(Boolean)); plan.alt = CHOP_MODES[last.mode].choke ? ([1, 2, 3].find(g => !altUsed.has(g)) || 1) : 0; r = { o: last, plan }; }
+    else {
+      r = await suChopDialog(src, next, { queue: items.length > 1 ? `sound ${q + 1} of ${items.length}` : '' });
+      if (!r) { if (q === 0) return; break; }
+      if (items.length > 1 && q === 0) auto = await ask(`<h2>Chop the other ${items.length - 1} sound${items.length > 2 ? 's' : ''} the same way?</h2><p class="muted">The same slice count, cutting method and play mode, each on the next free run of pads. Choose Cancel to set each one by hand.</p>`, 'Same settings');
+      last = r.o;
+    }
+    const t = chopApply(src, r.o, r.plan); su.chopUndoFresh = true; next = t[t.length - 1] + 1;
+    if (next >= 48) next = 0;
+  }
+  su.chopUndoFresh = false;
+  suSel = -1; selectPad(from < 48 ? from : 0); renderSheet(); refreshPads(); suRenderAll();
+}
+$('suChop').onclick = () => suChopPad(suSel);
+$('suSummary').addEventListener('click', async e => {
+  if (e.target.id !== 'suChopUndo' || !su || !su.chopUndo) return;
+  if (!await ask('<h2>Undo the last chop?</h2><p class="muted">The pads go back to how they were just before chopping. Any edits made since then are lost too.</p>', 'Undo chop')) return;
+  su.slots = su.chopUndo.slots; su.chopUndo.pads.forEach((x, k) => Object.assign(pads[k], x)); su.chopUndo = null; su.dirty = true;
+  su.slots.forEach((x, k) => audition.invalidate(k)); savePads(); renderSheet(); refreshPads(); suRenderAll(); log('Chop undone');
+});
 suRenderAll();
 </script>
 
