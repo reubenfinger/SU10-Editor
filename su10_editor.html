@@ -1886,7 +1886,7 @@ function suRenderSummary() {
     <dt>System grade</dt><dd><select id="suSysGrade" class="gsel">${GRADE_NAMES.map((n, i) => `<option value="${i}"${i === g ? ' selected' : ''}>${n}</option>`).join('')}</select> · ${gradeRates[g].toLocaleString()} Hz (${gradeRates[g] === GRADE_DEFAULTS[g] ? GRADE_STATUS[g] : 'set by you'}) · pitch ${pitch >= 0 ? '+' : ''}${pitch}%
       <button class="btn" id="suConvert" style="margin-left:8px;padding:3px 9px;font-size:12px">Convert dump grade…</button>${su.gradeUndo ? '<button class="btn" id="suConvertUndo" style="margin-left:6px;padding:3px 9px;font-size:12px">Undo grade conversion</button>' : ''}${su.chopUndo ? '<button class="btn" id="suChopUndo" style="margin-left:6px;padding:3px 9px;font-size:12px">Undo chop</button>' : ''}
       <div class="small muted" style="font-family:inherit">The selector just tells the editor what the SU10 is set to, so samples play at that grade and pitch, as the unit does. <b>Convert dump grade…</b> re-encodes every sample at another grade so they keep their pitch. Use it to make room (Long → Extra Long frees about 27 %) or to raise quality.</div></dd>
-    <dt>${su.blank ? 'Built from' : 'Checksums'}</dt><dd style="color:${su.bad ? 'var(--err)' : 'var(--ok)'}">${su.blank ? 'a folder, with songs and settings from the template' : su.bad ? su.bad + ' bad blocks' : 'all 1000 OK'}</dd>`;
+    <dt>${su.blank ? 'Built from' : 'Checksums'}</dt><dd style="color:${su.bad ? 'var(--err)' : 'var(--ok)'}">${su.blank ? (su.auto && !su.slots.some(Boolean) ? 'nothing yet: a blank memory with songs and settings from the template. Drop sounds onto any pad, or open a dump' : 'new sounds, with songs and settings from the template') : su.bad ? su.bad + ' bad blocks' : 'all 1000 OK'}</dd>`;
   $('suMemBar').style.width = Math.min(100, used / SUK.WAVE_SIZE * 100) + '%';
   const free = SUK.WAVE_SIZE - used;
   suRenderTune();
@@ -2448,7 +2448,7 @@ function emptyPadsFrom(k) { const out = []; for (let j = 0; j < 48; j++) { const
 async function suDropFiles(files, k, preferEmpty) {
   files = sortFiles(files);
   if (!files.length) return;
-  if (!su) { await suNewFromFiles(files, 'dropped files', k); return; }
+  if (!su) { suStartBlank(); }
   const items = await decodeFiles(files.slice(0, 48));
   if (!items.length) return;
   const consec = items.map((_, j) => k + j).filter(t => t < 48);
@@ -2458,7 +2458,7 @@ async function suDropFiles(files, k, preferEmpty) {
   await suImport(items, null, { modes: { consec, empty }, mode, start: k });
 }
 async function suAddFolder(files) {     // fill the empty pads of the open dump
-  if (!su) { await suNewFromFiles(files, 'folder'); return; }
+  if (!su) suStartBlank();
   const first = su.slots.findIndex(x => !x);
   if (first < 0) { await ask('<h2>No empty pads</h2><p class="muted">All 48 pads have samples. Drop the files onto a pad to replace from there, or delete or crop samples first.</p>', 'OK'); return; }
   await suDropFiles(files, first, 'empty');
@@ -2552,7 +2552,7 @@ async function suImport(allItems, targets, opts = {}) {
       <p class="muted small">${items.length} sound${items.length === 1 ? '' : 's'} → <b>${rangeTxt(targets)}</b> · source ${srcRates} Hz${stereo ? ' · stereo is mixed to mono' : ''}${opts.skipped ? ` · ${opts.skipped} more file${opts.skipped > 1 ? 's' : ''} ignored (48 pads max)` : ''}</p>
       ${left > 0 ? `<p class="note warn">${left} sound${left > 1 ? 's' : ''} won’t be added: ${mode === 'empty' ? 'not enough empty pads' : 'past D12'}.</p>` : ''}
       ${busy.length ? `<p class="note warn">Replaces ${busy.map(k => `<b>${padKey(k)}</b>${pads[k].name ? ' (' + escH(pads[k].name) + ')' : ''}`).join(', ')}. Each pad keeps its Note#, loop and play settings, and Undo on a pad brings its old sample back.</p>` : ''}
-      ${opts.folder ? `<p class="note">The songs and system settings come from ${escH(opts.templateFrom)}. Delete any songs you don’t want on the unit (UTILITY › Song) after restoring.${lastT < 47 ? ` Pads ${padKey(lastT + 1)}–D12 stay <b>empty</b>. You can fill them later with <b>Add folder to empty pads…</b> or by dropping files. The empty-pad format isn’t verified yet, so keep your backup handy.` : ''}</p>` : ''}`;
+      ${opts.folder || (su.blank && !su.slots.some(Boolean)) ? `<p class="note">The songs and system settings come from ${escH(opts.templateFrom || su.templateFrom || 'the template')}. Delete any songs you don’t want on the unit (UTILITY › Song) after restoring.${lastT < 47 || targets[0] > 0 ? ` Unused pads stay <b>empty</b>. You can fill them later with <b>Add folder to empty pads…</b> or by dropping files. The empty-pad format isn’t verified yet, so keep your backup handy.` : ''}</p>` : ''}`;
   };
   const pr = ask(`<div id="impHead"></div>
     ${opts.modes ? `<div class="row" style="margin:6px 0"><span class="small">Put them on:</span>
@@ -2629,17 +2629,36 @@ function suRememberTemplate(img, name) {   // called when a real dump is opened
   try { store.set('template', { sys: bytesToB64(img.mem.subarray(SUK.SYS, SUK.SYS + 28)), songs: bytesToB64(img.mem.subarray(SUK.SECT, 2 * SUK.SECT)), from: name }); } catch (e) {}
 }
 async function filesFromDrop(dt) {
-  const out = [], entries = dt.items ? [...dt.items].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean) : [];
-  if (!entries.length) return [...dt.files].filter(isAudioFile);
+  // Read everything synchronously while the drop event is live. Plain files come from dt.files, which works everywhere
+  // (Sample Prep uses the same). The folder API is only used when a folder was actually dropped, and Chrome may refuse it
+  // on file:// pages, in which case we fall back to the plain files.
+  const plain = [...(dt.files || [])];
+  let entries = [];
+  try { entries = dt.items ? [...dt.items].map(i => i.kind === 'file' && i.webkitGetAsEntry ? i.webkitGetAsEntry() : null).filter(Boolean) : []; } catch (e) { entries = []; }
+  const plainAudio = plain.filter(isAudioFile);
+  if (!entries.some(en => en.isDirectory)) return plainAudio;
+  const out = [];
   const walk = async (en, path) => {
-    if (en.isFile) { const f = await new Promise((res, rej) => en.file(res, rej)); f.relPath = path + f.name; if (isAudioFile(f)) out.push(f); }
+    if (en.isFile) { const f = await new Promise((res, rej) => en.file(res, rej)); try { f.relPath = path + f.name; } catch (e) {} if (isAudioFile(f)) out.push(f); }
     else if (en.isDirectory) {
       const rd = en.createReader(); let batch;
       do { batch = await new Promise((res, rej) => rd.readEntries(res, rej)); for (const c of batch) await walk(c, path + en.name + '/'); } while (batch.length);
     }
   };
-  for (const en of entries) await walk(en, '');
-  return out;
+  try { for (const en of entries) await walk(en, ''); }
+  catch (e) {
+    log(`The browser won't let this page read a dropped folder (${e.name || e}). Use “Add folder to empty pads…” or “New from folder…” instead, or drop the files themselves.`, 'err');
+    lcd.msg('Use Add', 'folder…', 2000);
+    return plainAudio;
+  }
+  return out.length ? out : plainAudio;
+}
+function suBlankImage(name) {
+  const t = suTemplate(), mem = new Uint8Array(SUK.NSECT * SUK.SECT).fill(0xFF);
+  mem.set(t.sys, SUK.SYS); mem.set(t.songs, SUK.SECT);
+  const img = { name: `${name}.syx`, hdr: new Uint8Array([0xF0, 0x43, 0x00, 0x7F, 0x36, 0x00, 0x00, 0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x7F, 0xF7]), mem, slots: new Array(48).fill(null), bad: 0, dirty: false, blank: true, templateFrom: t.from };
+  img.orig = new Array(48).fill(null); img.origGrade = mem[SUK.SYS]; img.baseName = name.replace(/[^\w.-]+/g, '_') || 'su10_new'; img.version = 0; img.savedAs = null;
+  return img;
 }
 async function suNewFromFiles(files, label, startK = 0) {
   files = files.filter(isAudioFile).sort((a, b) => (a.relPath || a.webkitRelativePath || a.name).localeCompare(b.relPath || b.webkitRelativePath || b.name, undefined, { numeric: true, sensitivity: 'base' }));
@@ -2654,12 +2673,10 @@ async function suNewFromFiles(files, label, startK = 0) {
   }
   lcd.release();
   if (!items.length) return;
-  const prev = su, t = suTemplate();
-  const mem = new Uint8Array(SUK.NSECT * SUK.SECT).fill(0xFF);
-  mem.set(t.sys, SUK.SYS); mem.set(t.songs, SUK.SECT);
-  const folder = (files[0].relPath || files[0].webkitRelativePath || '').split('/')[0] || label;
-  su = { name: `${folder}.syx`, hdr: new Uint8Array([0xF0, 0x43, 0x00, 0x7F, 0x36, 0x00, 0x00, 0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x7F, 0xF7]), mem, slots: new Array(48).fill(null), bad: 0, dirty: true, blank: true };
-  su.orig = new Array(48).fill(null); su.origGrade = mem[SUK.SYS]; su.baseName = folder.replace(/[^\w.-]+/g, '_') || 'su10_new'; su.version = 0; su.savedAs = null; suSel = 0;
+  const prev = su;
+  const folder = (files[0].relPath || files[0].webkitRelativePath || '').split('/')[0].replace(/\.[^.]+$/, '') || label;
+  const t = { from: suTemplate().from };
+  su = suBlankImage(folder); su.dirty = true; suSel = 0;
   const padsBefore = pads.map(x => Object.assign({}, x));
   for (let k = 0; k < 48; k++) Object.assign(pads[k], { name: '', note: 36 + k, loop: 'OShot', sound: 'Note', vol: 100, alt: 0, memo: '' });
   await suImport(items, items.map((_, j) => startK + j).filter(x => x < 48), { folder, templateFrom: t.from, skipped, start: startK, onCancel: () => { su = prev; padsBefore.forEach((x, k) => Object.assign(pads[k], x)); } });
@@ -3208,6 +3225,14 @@ $('suSummary').addEventListener('click', async e => {
   su.slots = su.chopUndo.slots; su.chopUndo.pads.forEach((x, k) => Object.assign(pads[k], x)); su.chopUndo = null; su.dirty = true;
   su.slots.forEach((x, k) => audition.invalidate(k)); savePads(); renderSheet(); refreshPads(); suRenderAll(); log('Chop undone');
 });
+
+/* ---------- always have a memory open: a blank one from the template until a real dump is opened ---------- */
+function suStartBlank() {
+  su = suBlankImage('New SU10 memory'); su.auto = true; suSel = 0;
+  settings.grade = ['Hi', 'Std', 'Long', 'Exlg'][su.mem[SUK.SYS] & 3]; saveSettings();
+  refreshPads(); lcd.render(); suRenderAll();
+}
+if (!su) suStartBlank();
 suRenderAll();
 </script>
 
