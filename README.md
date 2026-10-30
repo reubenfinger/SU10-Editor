@@ -49,7 +49,7 @@ The manual documents no messages for editing parameters (loop mode, volume, poin
   - **Effects** (baked in and re-encoded): normalise, gain, reverse, fades, loop crossfade, low/high-pass, pitch resample, bit-crush, crop (which frees memory).
   - **New from folder…**: with no dump open, choose a folder (or drop one onto the empty grid) to build a new SU10 memory. Sounds fill A1 onward in natural file-name order (1, 2 … 10), up to 48. The dialog offers strip silence, normalise, skip-or-trim if it doesn't all fit, and the grade table.
     - Songs and system settings come from a known-good template: the last real dump you opened, or a built-in copy of your 30 Oct backup. Delete unwanted songs on the unit after restoring.
-    - Unused pads are written as empty, which is an unverified format, so keep a backup.
+    - Unused pads are written empty, the same way the SU10 writes them (see the dump format below).
   - **Airwindows effects**: ports of Chris Johnson's **TapeHack2** (tape saturation: Input / Output / Dry-Wet), **Pockey2** (µ-law bit and frequency crusher: DeFreq / DeRez / Dry-Wet) and **Tube2** (tube drive and fuzz: Input / Tube), from github.com/airwindows/airwindows under the MIT licence (notice kept in the source).
     - They run at the sample's SU10 rate, and each plugin's own sample-rate scaling is kept.
     - They were checked against the original C++, compiled and run on the same signals: identical to within 1–2 float LSB (about 1e-7). The 32-bit float dither (about −190 dB) is left out.
@@ -117,7 +117,11 @@ The manual documents no messages for editing parameters (loop mode, volume, poin
   | 40 | Unknown (2) |
 
 - **Audio**: 4-bit IMA-ADPCM, low nibble first, 2 samples per byte. The stored predictor and index are the decoder state at wave start. **Checked against the SU10's own MSDS output (C7 and D7): bit-exact**, to within 1 LSB of WAV rounding.
-- **Not yet confirmed**: the empty-pad record (assumed to be all FF) and stereo storage. High's rate is derived from Long rather than measured.
+- **Empty pads**, confirmed from a dump made with D2 and D3 deleted on the unit: a **zero-length record**. The SU10 writes it either as all zeros (D2) or as address 0 and length 0 with the old parameters left in (D3). **An empty pad keeps its Note# in the note table.** The editor keeps the unit's own empty records exactly as they are, and writes all zeros for pads you delete.
+- **Free wave memory** is normally erased (FF). The unit can leave a stray byte after the last sample. The editor keeps those bytes whenever the samples end where the unit's did.
+- **Aborted captures**: if a capture holds an aborted start followed by a full dump (for example, header + 40 blocks, then a full dump), the editor uses the last complete dump. That applies to both editing and restoring, so a restore never sends the broken part. A new header during capture also restarts the capture.
+- **Round trip**: all four real dumps so far (the full 09:49 backup, Tonic 808 & TPhaze, Extra Long, and the one with empty pads) rebuild byte-identical.
+- **Not yet confirmed**: stereo storage. High's rate is derived from Long rather than measured.
 - **Can't be done**: a partial restore. Receiving a bulk dump clears the whole unit first, and the SU10 doesn't accept SDS. The editor works around this by always sending a complete image that already contains your changes.
 
 ## Notes

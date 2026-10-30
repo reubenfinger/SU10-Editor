@@ -561,7 +561,7 @@ table.sheet{border-collapse:collapse;width:100%;min-width:760px;font-size:12.5px
         <input type="file" id="suFolderInput" webkitdirectory multiple hidden>
         <label class="field">Swap with <select id="suSwapTo"></select></label><button class="btn" id="suSwap">Swap</button>
         <button class="btn" id="suWav">Save WAV</button>
-        <button class="btn danger" id="suDel">Delete (experimental)</button>
+        <button class="btn danger" id="suDel">Delete</button>
       </div>
       <div class="folderlist" id="suFolderList"></div>
     </div>
@@ -576,7 +576,7 @@ table.sheet{border-collapse:collapse;width:100%;min-width:760px;font-size:12.5px
         <li>Section 0 is 48 × 42-byte sample records, the system settings at 7E0h, and the note→pad table at 7FCh. Section 1 is song memory. Sections 2–49 are the 384 KB of wave memory.</li>
         <li>Audio is 4-bit IMA-ADPCM, low nibble first. The decoder state is stored per sample.</li>
       </ul>
-      <p>Not yet confirmed: what an empty pad looks like, how stereo samples are stored, and which grade each grade code means. Bulk receive always clears the whole unit first, so a full image is always sent.</p>
+      <p>Confirmed on hardware: an empty pad is a zero-length record (all zeros, or address 0 with its old parameters left in), and it keeps its Note# in the note table. The grade codes are 0 High, 1 Standard, 2 Long, 3 Extra Long. Not yet known: how stereo samples are stored. Bulk receive always clears the whole unit first, so a full image is always sent.</p>
     </details>
   </section>
 
@@ -1140,6 +1140,7 @@ const bulk = {
   },
   onMessage(d) {
     if (!this.armed) { if (this.sending) { log('RX SysEx during restore ' + hexStr(d), 'in', 'sysex'); return; } this.arm(true); }
+    if (d.length === 15 && d[1] === 0x43 && d[4] === 0x36 && this.rx.length) { log(`New SU10 dump header after ${this.rx.length} messages, so the capture starts again (the earlier send was incomplete)`, 'err'); this.rx = []; this.rxBytes = 0; }
     this.rx.push(new Uint8Array(d)); this.rxBytes += d.length; this.lastRx = performance.now();
     const n = this.rx.length;
     if (n === 1 || n % 50 === 0) log(`RX bulk message #${n} (${d.length} B) ${hexStr(d, 10)}`, 'in', 'sysex');
@@ -1186,6 +1187,10 @@ function analyzeSyx(msgs) {
   return { count: msgs.length, bytes, sizes, footers, yamaha, looksComplete: msgs.length === BULK_EXPECTED_MSGS && footers === 50 };
 }
 function loadSyx(msgs, name) {
+  if (typeof suExtract === 'function' && msgs.length !== BULK_EXPECTED_MSGS) {
+    const ex = suExtract(msgs);
+    if (ex) { log(`${name}: has ${msgs.length} messages. Using the complete dump inside it (${ex.extra} extra message${ex.extra > 1 ? 's' : ''} from an aborted start ignored), so a restore sends only that.`, 'err'); msgs = ex.msgs; name += ' (complete dump extracted)'; }
+  }
   bulk.file = msgs;
   const a = analyzeSyx(msgs);
   $('syxName').textContent = name;
@@ -1744,8 +1749,19 @@ function imaEncode(f) {           // Float32 −1..1 → {bytes, p0, i0}
 }
 
 /* ---------- parse / build ---------- */
+function suExtract(msgs) {      // the last complete dump (header + 1000 numbered blocks) in a capture; ignores aborted starts
+  const blkOK = (m, bn) => m && m.length >= 11 && isSUmsg(m) && m[8] === (bn & 0x7F);
+  for (let i = msgs.length - 1001; i >= 0; i--) {
+    const h = msgs[i]; if (!(h.length === 15 && isSUmsg(h))) continue;
+    let ok = true; for (let b = 1; b <= 1000; b++) if (!blkOK(msgs[i + b], b)) { ok = false; break; }
+    if (ok) return { msgs: msgs.slice(i, i + 1001), from: i, extra: msgs.length - 1001 };
+  }
+  return null;
+}
 function suParse(msgs, name) {
-  if (msgs.length !== 1 + SUK.NSECT * SUK.BLK) throw new Error(`expected 1001 SysEx messages, found ${msgs.length}`);
+  const ex = suExtract(msgs);
+  if (!ex) throw new Error(`no complete SU10 dump found (${msgs.length} SysEx messages; a full dump is 1 header + 1000 blocks)`);
+  msgs = ex.msgs;
   const hdr = msgs[0];
   if (!isSUmsg(hdr) || hdr.length !== 15) throw new Error('first message is not an SU10 bulk header');
   const mem = new Uint8Array(SUK.NSECT * SUK.SECT); let bad = 0;
@@ -1764,8 +1780,16 @@ function suParse(msgs, name) {
     mem.set(unpack7(all).subarray(0, SUK.SECT), s * SUK.SECT);
   }
   const slots = [];
-  for (let k = 0; k < 48; k++) slots.push(suReadRec(mem, k));
-  return { name, hdr: new Uint8Array(hdr), mem, slots, bad, dirty: false };
+  const emptyRaw = new Array(48).fill(null), emptyNote = new Array(48).fill(null);
+  for (let k = 0; k < 48; k++) {
+    const s = suReadRec(mem, k); slots.push(s);
+    if (!s) {          // the SU10's own empty pads: length 0 (often address 0 and old parameters left in, or all zero)
+      emptyRaw[k] = mem.slice(k * SUK.REC, (k + 1) * SUK.REC);
+      for (let n = 0; n < 128; n++) if (mem[SUK.NOTES + n] === k) { emptyNote[k] = n; break; }
+    }
+  }
+  const origWaveEnd = slots.reduce((m, s) => s ? Math.max(m, s.order + s.adpcm.length) : m, SUK.WAVE_BASE);
+  return { name, hdr: new Uint8Array(hdr), mem, slots, bad, dirty: false, emptyRaw, emptyNote, extra: ex.extra, from: ex.from, origWaveEnd };
 }
 function suReadRec(mem, k) {
   const r = mem.slice(k * SUK.REC, (k + 1) * SUK.REC);
@@ -1807,8 +1831,14 @@ function suBuildMem() {
   mem.fill(0xFF, SUK.WAVE_OFF, SUK.WAVE_OFF + SUK.WAVE_SIZE);
   let addr = SUK.WAVE_BASE;
   for (const { s, k } of items) { mem.set(s.adpcm, SUK.WAVE_OFF + addr - SUK.WAVE_BASE); suWriteRec(mem, k, s, addr); addr += s.adpcm.length; }
-  su.slots.forEach((s, k) => { if (!s) mem.fill(0xFF, k * SUK.REC, (k + 1) * SUK.REC); });
+  // free memory: if the samples still end where the unit's did, keep the unit's own bytes there (it can leave a stray byte
+  // after the last sample); otherwise leave it erased (FF), as in a fresh unit.
+  if (su.origWaveEnd !== undefined && addr === su.origWaveEnd) { const o = SUK.WAVE_OFF + addr - SUK.WAVE_BASE; mem.set(su.mem.subarray(o, SUK.WAVE_OFF + SUK.WAVE_SIZE), o); }
+  // empty pads, as the SU10 writes them (verified on a real dump): length 0. Keep the unit's own empty record if it had one, else all zero.
+  su.slots.forEach((s, k) => { if (!s) mem.set((su.emptyRaw && su.emptyRaw[k] && su.emptyRaw[k].length === SUK.REC) ? su.emptyRaw[k] : new Uint8Array(SUK.REC), k * SUK.REC); });
+  // note table: empty pads keep their Note# (the unit does this too); a sample's own Note# wins any clash
   mem.fill(0xFF, SUK.NOTES, SUK.NOTES + 128);
+  su.slots.forEach((s, k) => { const n = s ? null : pads[k].note; if (n !== null && n !== undefined && n >= 0 && n < 128) mem[SUK.NOTES + n] = k; });
   su.slots.forEach((s, k) => { if (s && s.note !== null) mem[SUK.NOTES + s.note] = k; });
   return mem;
 }
@@ -1848,7 +1878,8 @@ async function suTryOpen(msgs, name, fromElsewhere) {
   su.origGrade = su.mem[SUK.SYS];
   su.baseName = name.replace(/\.syx$/i, '').replace(/_edit\d+$/, ''); su.version = (name.match(/_edit(\d+)\.syx$/i) || [0, 0])[1] | 0; su.savedAs = null;
   // the unit's real settings now drive the pad sheet
-  su.slots.forEach((s, k) => { if (s) Object.assign(pads[k], { note: s.note, loop: LOOP_MODES[s.lm], sound: SOUND_MODES[s.sm], vol: s.vol, alt: s.alt }); else pads[k].note = null; });
+  su.slots.forEach((s, k) => { if (s) Object.assign(pads[k], { note: s.note, loop: LOOP_MODES[s.lm], sound: SOUND_MODES[s.sm], vol: s.vol, alt: s.alt }); else pads[k].note = img.emptyNote ? img.emptyNote[k] : null; });
+  if (img.extra) log(`${name}: ${img.extra} extra SysEx message${img.extra > 1 ? 's' : ''} before the dump (an aborted start?) were ignored. Using the complete dump that starts at message ${img.from + 1}.`, 'err');
   savePads();
   settings.grade = ['Hi', 'Std', 'Long', 'Exlg'][su.mem[SUK.SYS] & 3]; saveSettings();
   log(`Opened SU10 dump ${name}: ${su.slots.filter(Boolean).length} samples, ${(suUsed() / 1024).toFixed(1)} KB used` + (img.bad ? ` — ${img.bad} checksum errors!` : ', all checksums OK'), img.bad ? 'err' : 'sys');
@@ -2257,7 +2288,7 @@ function suCopy(a, b) {
 $('suSwap').onclick = () => { const t = +$('suSwapTo').value; if (t !== suSel) suSwap(suSel, t); };
 $('suDel').onclick = async () => {
   if (!suCur()) return;
-  if (!await ask(`<h2>Delete ${padKey(suSel)}?</h2><p class="muted">This frees ${(suCur().adpcm.length / 1024).toFixed(1)} KB.</p><p class="note warn">Experimental: your dump had no empty pads, so the editor writes an erased (FF) record, which is a guess. Keep your original backup handy in case the SU10 shows “Bad Data!”.</p>`, 'Delete')) return;
+  if (!await ask(`<h2>Delete ${padKey(suSel)}?</h2><p class="muted">This frees ${(suCur().adpcm.length / 1024).toFixed(1)} KB.</p><p class="muted">The pad is written empty the way the SU10 does it (a zero-length record), and it keeps its Note#. Undo isn’t available for a delete, but the original stays in your saved dumps.</p>`, 'Delete')) return;
   su.slots[suSel] = null; suMarkDirty(); audition.invalidate(suSel); refreshPads(); suRenderAll();
 };
 $('suWav').onclick = () => { const s = suCur(); if (s) download(wavBlob([suFloat(s)], suRate(s)), `su10_${padKey(suSel)}${pads[suSel].name ? '_' + pads[suSel].name.replace(/[^\w-]+/g, '_') : ''}.wav`); };
@@ -2552,7 +2583,7 @@ async function suImport(allItems, targets, opts = {}) {
       <p class="muted small">${items.length} sound${items.length === 1 ? '' : 's'} → <b>${rangeTxt(targets)}</b> · source ${srcRates} Hz${stereo ? ' · stereo is mixed to mono' : ''}${opts.skipped ? ` · ${opts.skipped} more file${opts.skipped > 1 ? 's' : ''} ignored (48 pads max)` : ''}</p>
       ${left > 0 ? `<p class="note warn">${left} sound${left > 1 ? 's' : ''} won’t be added: ${mode === 'empty' ? 'not enough empty pads' : 'past D12'}.</p>` : ''}
       ${busy.length ? `<p class="note warn">Replaces ${busy.map(k => `<b>${padKey(k)}</b>${pads[k].name ? ' (' + escH(pads[k].name) + ')' : ''}`).join(', ')}. Each pad keeps its Note#, loop and play settings, and Undo on a pad brings its old sample back.</p>` : ''}
-      ${opts.folder || (su.blank && !su.slots.some(Boolean)) ? `<p class="note">The songs and system settings come from ${escH(opts.templateFrom || su.templateFrom || 'the template')}. Delete any songs you don’t want on the unit (UTILITY › Song) after restoring.${lastT < 47 || targets[0] > 0 ? ` Unused pads stay <b>empty</b>. You can fill them later with <b>Add folder to empty pads…</b> or by dropping files. The empty-pad format isn’t verified yet, so keep your backup handy.` : ''}</p>` : ''}`;
+      ${opts.folder || (su.blank && !su.slots.some(Boolean)) ? `<p class="note">The songs and system settings come from ${escH(opts.templateFrom || su.templateFrom || 'the template')}. Delete any songs you don’t want on the unit (UTILITY › Song) after restoring.${lastT < 47 || targets[0] > 0 ? ` Unused pads stay <b>empty</b>, written the same way the SU10 writes them. You can fill them later with <b>Add folder to empty pads…</b> or by dropping files.` : ''}</p>` : ''}`;
   };
   const pr = ask(`<div id="impHead"></div>
     ${opts.modes ? `<div class="row" style="margin:6px 0"><span class="small">Put them on:</span>
@@ -3116,7 +3147,7 @@ async function suChopDialog(src, from, opts = {}) {
       · ${CHOP_MODES[o.mode].label}${plan.alt ? ` (AltGrp ${plan.alt}${altUsed.has(plan.alt) ? ', <span style="color:var(--err)">already shared with other pads</span>' : ''})` : ''}
       · needs ${kb(plan.need)} of ${kb(plan.free)} free${plan.fits ? '' : ' · <b style="color:var(--err)">doesn’t fit: use fewer slices, crop the source or free memory</b>'}`
       + (plan.N < o.n ? ` · <span style="color:var(--err)">only ${plan.N} slices fit this length</span>` : '')
-      + (src.pad !== null && o.replaceSrc && !used.has(src.pad) ? ` · <span style="color:var(--err)">${padKey(src.pad)} will be left empty (unverified empty-pad format)</span>` : '');
+      + (src.pad !== null && o.replaceSrc && !used.has(src.pad) ? ` · ${padKey(src.pad)} will be left empty` : '');
     if (o.method === 'transient') {
       if (src._on === undefined || src._gap !== o.minGapMs || src._sens !== o.sens) { const ml = Math.max(256, Math.round(o.minGapMs / 1000 * src.rate)), sorted = detectOnsets(src.f, src.rate, o.sens).filter(x => x.pos > ml).sort((x, y) => y.s - x.s), kept = []; for (const x of sorted) if (kept.every(c => Math.abs(c - x.pos) >= ml)) kept.push(x.pos); src._on = kept.length + 1; src._gap = o.minGapMs; src._sens = o.sens; }
       $('chInfo').innerHTML += ` · <span class="muted">${src._on} hit${src._on === 1 ? '' : 's'} found${src._on > plan.N ? `: ${plan.N} slices keep the strongest, so choose more slices to cut at all of them` : src._on < plan.N ? ', so the rest are split evenly' : ''}</span>`;
