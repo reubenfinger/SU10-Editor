@@ -31,7 +31,7 @@ The manual documents no messages for editing parameters (loop mode, volume, poin
 - **Pads & Note Table**: your 48-pad sheet.
   - **Learn**: click it, then press the pad on the SU10 and its note is picked up. **Learn sequence** steps through the pads one after another.
   - The table can be reset to the default, cleared, or exported and imported as JSON.
-  - Name, LpMode, SdMode, PadVol, AltGrp and Memo are notes for you. They decide how captured samples play when you audition them in the editor.
+  - Name, LpMode, SdMode, PadVol, Mute group and Memo are notes for you. They decide how captured samples play when you audition them in the editor.
 - **Bulk Backup / Restore**
   - Backup records the SU10's Dump Send (all four segments) and saves it as a `.syx`. It starts by itself if bulk data arrives.
   - Restore uses susend's timing: header, 10 s wait, 128 ms between blocks, 1 s after each 259-byte section footer. The timing runs in a Web Worker, so a background tab can't stretch a gap past the SU10's 30 s time-out.
@@ -43,7 +43,7 @@ The manual documents no messages for editing parameters (loop mode, volume, poin
 - **Selection follows everything**: clicking a sample in the SU10 Memory grid switches the panel to its bank, so computer keys play that bank. Hitting a computer key, clicking a panel pad, or pressing a learned pad on the SU10 itself opens that sample in the editor.
 - **Always a memory open**: with no dump loaded, the editor starts with a **blank SU10 memory** built from the template (48 empty pads, plus the template's songs and system settings). Dropping on pads, Sample Prep's Add, chopping and saving all work straight away. Opening a real dump replaces it, and asks first if you've added anything.
 - **Drag and drop** reads dropped files the same simple way Sample Prep does. The browser's folder API is used only when a folder is dropped, and if the browser blocks it on a local `file://` page, the editor falls back to the files and suggests **Add folder…**.
-- **SU10 Memory**: opens a bulk dump and shows all 48 samples with their real settings: bank/pad, Note#, LpMode, SdMode, PadVol, AltGrp, start/loop/end points, length, grade and pitch.
+- **SU10 Memory**: opens a bulk dump and shows all 48 samples with their real settings: bank/pad, Note#, LpMode, SdMode, PadVol, Mute group, start/loop/end points, length, grade and pitch.
   - **Pads**: drag to swap, Alt-drag to copy. As on the unit, each Note# stays with its pad position.
   - **Points**: drag the markers or type values. Zoomed views show the loop seam. Tools: snap to zero crossings, find best loop end/start, and the TEMPO readout the SU10 itself shows.
   - **Effects** (baked in and re-encoded): normalise, gain, reverse, fades, loop crossfade, low/high-pass, pitch resample, bit-crush, crop (which frees memory).
@@ -54,11 +54,11 @@ The manual documents no messages for editing parameters (loop mode, volume, poin
     - They run at the sample's SU10 rate, and each plugin's own sample-rate scaling is kept.
     - They were checked against the original C++, compiled and run on the same signals: identical to within 1–2 float LSB (about 1e-7). The 32-bit float dither (about −190 dB) is left out.
     - **Preview** plays the result without changing anything. **Render** bakes it in and re-encodes the sample, and **Undo** steps back through renders. Settings are remembered, and a **defaults** button restores each plugin's original defaults.
-  - **Chop mode (✂)**: slices one sound across **4/8/16/32 sequential pads**. Open it with **✂ Chop…** on a pad, or with **Chop … into slices instead…** in the import dialog (single files, drops and folders, where each sound is chopped in turn with an option to reuse the same settings).
+  - **Chop mode (✂)**: slices one sound across **2/4/8/12/16/32/48 sequential pads** (12 = one bank, 48 = the whole SU10). Open it with **✂ Chop…** on a pad, or with **Chop … into slices instead…** in the import dialog (single files, drops and folders, where each sound is chopped in turn with an option to reuse the same settings).
     - **Cuts**: at **transients** (energy rise against the previous 40 ms, with a sensitivity control and a minimum gap) or on an **even grid** for tempo loops. Cuts snap to zero crossings, just before the attack for transients. The dialog says how many hits it found.
     - **Interactive waveform**: click a slice to hear it, drag a cut line to move it (Shift snaps it to a zero crossing). Each slice shows the pad it will land on.
     - **Placement**: it finds the first run of N empty pads in a row (from the chosen pad, then from A1). Chopping a pad can free that pad so slice 1 takes its place. If there's no free run, it says which pads would be replaced. The memory needed and available is shown, and Chop is disabled if it won't fit.
-    - **Play modes**: **Choke** (OShot, Trggr, one free AltGrp so each slice cuts off the last), **Choke + loop** (WLoop, Note, AltGrp), **Loop** (WLoop, Toggl), **One-shot** (no choke). SdMode can be overridden.
+    - **Play modes**: **Choke** (OShot, Trggr, one free mute group so each slice cuts off the last), **Choke + loop** (WLoop, Note, mute group), **Loop** (WLoop, Toggl), **One-shot** (no choke). SdMode can be overridden.
     - Chopping an existing pad copies its ADPCM bytes **exactly**, with the decoder state taken at each cut, so nothing is re-encoded. Ticking the 2 ms fades re-encodes instead. Slices of imported files are encoded at the unit's grade.
     - Pads without a Note# get the default (C1 + pad) if it's free. **Undo chop** in the summary puts every pad back.
   - **Strip silence**: trims audio below a threshold (default −48 dB) off the start and end, keeping a short tail (default 20 ms) and adding a 3 ms fade so the cut can't click. It frees the memory. Tick **crop to Start–End first** to crop and strip in one step. **Strip all one-shots** does every OShot/RShot/Trggr pad at once and skips looped pads, so loop timing isn't changed. Undo works per pad.
@@ -109,7 +109,7 @@ The manual documents no messages for editing parameters (loop mode, volume, poin
   | 31 | SdMode (0 Note, 1 Toggl, 2 Trggr) |
   | 32 | PadVol |
   | 33, 34 | Unknown (40h, 01h) |
-  | 35 | AltGrp |
+  | 35 | AltGrp (shown as Mute group in the editor) |
   | 36 | Note# (FF = Off) |
   | 37 | Unknown |
   | 38 | Grade code |

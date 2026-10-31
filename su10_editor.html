@@ -369,7 +369,7 @@ table.sheet{border-collapse:collapse;width:100%;min-width:760px;font-size:12.5px
     <div class="banktabs" id="sheetBanks"></div>
     <div class="tablewrap">
       <table class="sheet">
-        <thead><tr><th>Pad</th><th>Name</th><th>MIDI Note#</th><th></th><th>LpMode</th><th>SdMode</th><th>PadVol</th><th>AltGrp</th><th>Captured</th><th>Memo</th></tr></thead>
+        <thead><tr><th>Pad</th><th>Name</th><th>MIDI Note#</th><th></th><th>LpMode</th><th>SdMode</th><th>PadVol</th><th>Mute group</th><th>Captured</th><th>Memo</th></tr></thead>
         <tbody id="sheetBody"></tbody>
       </table>
     </div>
@@ -383,7 +383,7 @@ table.sheet{border-collapse:collapse;width:100%;min-width:760px;font-size:12.5px
       <input type="file" id="sheetFile" accept=".json,application/json" hidden>
     </div>
     <p class="note">Note# is what this editor sends and listens for — it must match the SU10’s own table (EDIT › Note#, or UTILITY › MIDI › NoteTbInit for the default C1–B4). Use <b>Learn</b>: click it, then press the pad on the SU10 and its note is picked up. As on the unit, giving a note to one pad sets any other pad using it to Off.<br>
-    Without a dump loaded, LpMode, SdMode, PadVol and AltGrp are just notes. Once a bulk dump is open in <b>SU10 Memory</b>, they show the unit’s real settings, and any change here goes into the rebuilt dump. Names and Memo always stay in this editor only.</p>
+    Without a dump loaded, LpMode, SdMode, PadVol and Mute group are just notes. Once a bulk dump is open in <b>SU10 Memory</b>, they show the unit’s real settings, and any change here goes into the rebuilt dump. Names and Memo always stay in this editor only.</p>
   </section>
 
   <!-- BULK -->
@@ -515,7 +515,7 @@ table.sheet{border-collapse:collapse;width:100%;min-width:760px;font-size:12.5px
         <label>EdPnt (sample)<input type="number" id="suEd" min="0" step="1"></label>
         <label>LpMode<select id="suLm"></select></label>
         <label>SdMode<select id="suSm"></select></label>
-        <label>PadVol / AltGrp<span style="display:flex;gap:6px"><input type="number" id="suVol" min="0" max="127" style="width:50%"><select id="suAlt" style="width:50%"><option value="0">Off</option><option>1</option><option>2</option><option>3</option></select></span></label>
+        <label>PadVol / Mute group<span style="display:flex;gap:6px"><input type="number" id="suVol" min="0" max="127" style="width:50%"><select id="suAlt" style="width:50%"><option value="0">Off</option><option>1</option><option>2</option><option>3</option></select></span></label>
       </div>
       <div class="row">
         <button class="btn" id="suSnap">Snap points to zero crossings</button>
@@ -1942,7 +1942,7 @@ function suRenderGrid() {
       c.draggable = !!s;
       c.innerHTML = `<i class="ed"></i><div class="t"><b>${padKey(k)}</b><span>${s ? noteName(s.note) : ''}</span></div><canvas></canvas>
         <div class="m">${s ? `${LOOP_MODES[s.lm]} ${(suNS(s) / suRate(s)).toFixed(2)}s` : 'empty'}</div>`;
-      c.title = s ? `${padKey(k)} · ${LOOP_MODES[s.lm]}/${SOUND_MODES[s.sm]} · vol ${s.vol} · alt ${s.alt || 'off'} · ${(s.adpcm.length / 1024).toFixed(1)} KB` : padKey(k) + ' empty';
+      c.title = s ? `${padKey(k)} · ${LOOP_MODES[s.lm]}/${SOUND_MODES[s.sm]} · vol ${s.vol} · mute ${s.alt || 'off'} · ${(s.adpcm.length / 1024).toFixed(1)} KB` : padKey(k) + ' empty';
       c.dataset.k = k;
       c.onclick = () => { if (Math.floor(k / 12) !== bank) setBank(Math.floor(k / 12)); selectPad(k); };
       c.ondragstart = e => { e.dataTransfer.setData('text/plain', String(k)); e.dataTransfer.effectAllowed = 'copyMove'; };
@@ -2348,7 +2348,7 @@ function suChanges() {
     if (s.lm !== o.lm) c.push(`LpMode ${L[o.lm]}→${L[s.lm]}`);
     if (s.sm !== o.sm) c.push(`SdMode ${S[o.sm]}→${S[s.sm]}`);
     if (s.vol !== o.vol) c.push(`PadVol ${o.vol}→${s.vol}`);
-    if (s.alt !== o.alt) c.push(`AltGrp ${o.alt || 'Off'}→${s.alt || 'Off'}`);
+    if (s.alt !== o.alt) c.push(`Mute group ${o.alt || 'Off'}→${s.alt || 'Off'}`);
     if (s.note !== o.note) c.push(`Note# ${noteName(o.note)}→${noteName(s.note)}`);
     if (c.length) out.push([k, c]);
   }
@@ -2601,7 +2601,7 @@ async function suImport(allItems, targets, opts = {}) {
     </div>
     <p class="small">Choose the grade to store everything at. The SU10 plays every sample at one grade${opts.folder ? '' : ', so picking a different grade converts the whole dump to keep every sample in tune'}.</p>
     <div id="impTable"></div>
-    <div class="row" style="margin:8px 0 0"><button class="btn" id="impChop">✂ Chop ${allItems.length > 1 ? 'each sound' : 'this sound'} into slices instead…</button><span class="small muted">4/8/16/32 slices on sequential pads, cut at transients or on an even grid</span></div>
+    <div class="row" style="margin:8px 0 0"><button class="btn" id="impChop">✂ Chop ${allItems.length > 1 ? 'each sound' : 'this sound'} into slices instead…</button><span class="small muted">2/4/8/12/16/32/48 slices on sequential pads, cut at transients or on an even grid</span></div>
     ${allItems.length > 1 ? `<details class="small muted"><summary>Sounds (${allItems.length})</summary><div id="impList" class="mono"></div></details>` : ''}`, 'Add');
   let plans = null;
   const render = () => {
@@ -2993,9 +2993,9 @@ function awRender(name) {
 }
 
 /* =========================================================================
-   CHOP MODE — slice one sound across 4/8/16/32 sequential pads
+   CHOP MODE — slice one sound across 2/4/8/12/16/32/48 sequential pads
    cuts: transient detection or an even grid, snapped to zero crossings
-   play: Choke (one alt group, one-shot) · Choke + loop · Loop · One-shot
+   play: Choke (one mute group, one-shot) · Choke + loop · Loop · One-shot
    Chopping an existing pad copies its ADPCM bytes exactly (no re-encode) unless fades are on.
    ========================================================================= */
 function padNoteFor(k) {      // a pad without a Note# gets the default (C1 + k) if nobody else uses it
@@ -3104,10 +3104,14 @@ function drawChop(canvas, src, plan, hover) {
   g.fillStyle = '#f2b544'; const step = n / w;
   for (let x = 0; x < w; x++) { let mx = 0; const a = Math.floor(x * step), b = Math.max(a + 1, Math.floor((x + 1) * step)); for (let i = a; i < b && i < n; i++) { const v = Math.abs(f[i]); if (v > mx) mx = v; } const y = mx * h * 0.45; g.fillRect(x, h / 2 - y, 1, Math.max(1, 2 * y)); }
   g.font = 'bold 10px sans-serif'; g.textAlign = 'left';
+  let free = 0;                         // labels only where they fit, so 32/48 slices stay readable
   for (let j = 0; j < plan.N; j++) {
-    const x = X(B[j]);
+    const x = X(B[j]), room = X(B[j + 1]) - x - 4, key = plan.targets[j] !== undefined ? padKey(plan.targets[j]) : '';
     if (j) { g.fillStyle = '#ff6b5e'; g.fillRect(x - 1, 0, 2, h); }
-    g.fillStyle = '#fff'; g.fillText(`${j + 1}${plan.targets[j] !== undefined ? ' ' + padKey(plan.targets[j]) : ''}`, x + 3, 11);
+    const full = `${j + 1}${key ? ' ' + key : ''}`, txt = [full, String(j + 1)].find(t => g.measureText(t).width <= room);
+    g.fillStyle = '#fff';
+    if (txt && x + 3 >= free) { g.fillText(txt, x + 3, 11); free = x + 3 + g.measureText(txt).width + 3; }
+    if (j === hover && txt !== full) { const tw = g.measureText(full).width, tx = Math.min(Math.max(2, x + 3), w - tw - 6); g.fillStyle = 'rgba(0,0,0,.75)'; g.fillRect(tx - 3, 15, tw + 6, 14); g.fillStyle = '#fff'; g.fillText(full, tx, 26); }
   }
 }
 async function suChopDialog(src, from, opts = {}) {
@@ -3117,7 +3121,7 @@ async function suChopDialog(src, from, opts = {}) {
     <canvas id="chopWave" style="width:100%;height:150px;display:block;border:1px solid var(--line);border-radius:8px;cursor:pointer;touch-action:none"></canvas>
     <div class="small muted" style="margin:4px 0 8px">Click a slice to hear it. Drag a red cut line to move it (Shift snaps it to a zero crossing).</div>
     <div class="row">
-      <label class="field">Slices <select id="chN">${[4, 8, 16, 32].map(v => `<option${v === o.n ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="field">Slices <select id="chN">${[2, 4, 8, 12, 16, 32, 48].map(v => `<option${v === o.n ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="field">Cut at <select id="chM"><option value="transient"${o.method === 'transient' ? ' selected' : ''}>transients</option><option value="grid"${o.method === 'grid' ? ' selected' : ''}>even grid (for loops)</option></select></label>
       <label class="field">sensitivity <input type="range" id="chS" min="0" max="1" step="0.05" value="${o.sens}" style="width:90px;accent-color:var(--accent)"></label>
       <label class="field">min gap <input type="number" id="chGap" value="${o.minGapMs}" min="12" max="2000" style="width:62px"> ms</label>
@@ -3143,8 +3147,8 @@ async function suChopDialog(src, from, opts = {}) {
     plan.alt = CHOP_MODES[o.mode].choke ? ([1, 2, 3].find(g => !altUsed.has(g)) || 1) : 0;
     const kb = b => (b / 1024).toFixed(1) + ' KB';
     const runTxt = `${padKey(plan.targets[0])}–${padKey(plan.targets[plan.N - 1])}`;
-    $('chInfo').innerHTML = `<b>${plan.N} slices</b> → ${runTxt}${plan.replacing.length ? ` · <span style="color:var(--err)">no ${plan.N} empty pads in a row, so this replaces ${plan.replacing.map(padKey).join(', ')}</span>` : ' · all empty' + (src.pad !== null && o.replaceSrc && used.has(src.pad) ? ` (slice ${plan.targets.indexOf(src.pad) + 1} takes ${padKey(src.pad)})` : '')}
-      · ${CHOP_MODES[o.mode].label}${plan.alt ? ` (AltGrp ${plan.alt}${altUsed.has(plan.alt) ? ', <span style="color:var(--err)">already shared with other pads</span>' : ''})` : ''}
+    $('chInfo').innerHTML = `<b>${plan.N} slices</b> → ${runTxt}${plan.replacing.length ? ` · <span style="color:var(--err)">no ${plan.N} empty pads in a row, so this replaces ${plan.replacing.length > 12 ? `${plan.replacing.length} pads (${padKey(plan.replacing[0])}–${padKey(plan.replacing[plan.replacing.length - 1])})` : plan.replacing.map(padKey).join(', ')}</span>` : ' · all empty' + (src.pad !== null && o.replaceSrc && used.has(src.pad) ? ` (slice ${plan.targets.indexOf(src.pad) + 1} takes ${padKey(src.pad)})` : '')}
+      · ${CHOP_MODES[o.mode].label}${plan.alt ? ` (mute group ${plan.alt}${altUsed.has(plan.alt) ? ', <span style="color:var(--err)">already shared with other pads</span>' : ''})` : ''}
       · needs ${kb(plan.need)} of ${kb(plan.free)} free${plan.fits ? '' : ' · <b style="color:var(--err)">doesn’t fit: use fewer slices, crop the source or free memory</b>'}`
       + (plan.N < o.n ? ` · <span style="color:var(--err)">only ${plan.N} slices fit this length</span>` : '')
       + (src.pad !== null && o.replaceSrc && !used.has(src.pad) ? ` · ${padKey(src.pad)} will be left empty` : '');
@@ -3219,7 +3223,7 @@ function chopApply(src, o, plan) {
     audition.invalidate(k);
   }
   su.dirty = true; savePads();
-  log(`Chopped ${src.pad !== null ? padKey(src.pad) : src.name} into ${plan.N} slices on ${padKey(plan.targets[0])}–${padKey(plan.targets[plan.N - 1])} · ${mode.label}${plan.alt ? ` (AltGrp ${plan.alt})` : ''}, ${SOUND_MODES[o.sm]} · ${states ? 'byte-exact' : 're-encoded'} · ${((SUK.WAVE_SIZE - suUsed()) / 1024).toFixed(1)} KB free`);
+  log(`Chopped ${src.pad !== null ? padKey(src.pad) : src.name} into ${plan.N} slices on ${padKey(plan.targets[0])}–${padKey(plan.targets[plan.N - 1])} · ${mode.label}${plan.alt ? ` (mute group ${plan.alt})` : ''}, ${SOUND_MODES[o.sm]} · ${states ? 'byte-exact' : 're-encoded'} · ${((SUK.WAVE_SIZE - suUsed()) / 1024).toFixed(1)} KB free`);
   return plan.targets;
 }
 async function suChopPad(k) {
