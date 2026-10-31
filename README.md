@@ -32,6 +32,7 @@ The manual documents no messages for editing parameters (loop mode, volume, poin
   - **Learn**: click it, then press the pad on the SU10 and its note is picked up. **Learn sequence** steps through the pads one after another.
   - The table can be reset to the default, cleared, or exported and imported as JSON.
   - Name, LpMode, SdMode, PadVol, Mute group and Memo are notes for you. They decide how captured samples play when you audition them in the editor.
+  - **Names belong to samples, not pads.** The SU10 doesn't store names, so the editor remembers each name against the sample's audio. Reopen a dump and the samples you named get their names back. Pads whose sample is new, deleted or empty start unnamed, so names from earlier dumps never carry over. A name follows its sample when you swap or move pads, and after an effect render once you save or send the dump.
 - **Bulk Backup / Restore**
   - Backup records the SU10's Dump Send (all four segments) and saves it as a `.syx`. It starts by itself if bulk data arrives.
   - Restore uses susend's timing: header, 10 s wait, 128 ms between blocks, 1 s after each 259-byte section footer. The timing runs in a Web Worker, so a background tab can't stretch a gap past the SU10's 30 s time-out.

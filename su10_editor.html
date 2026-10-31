@@ -703,7 +703,33 @@ function sanitizePads(arr) {
   }));
 }
 let pads = sanitizePads(store.get('pads', null));
-const savePads = () => store.set('pads', pads);
+const savePads = () => { store.set('pads', pads); rememberNames(); };
+/* Names belong to samples, not pad positions: each name is remembered against a hash of the
+   sample's ADPCM bytes, so it comes back when a dump holding that sample is reopened and
+   never sticks to a pad once the sample has gone. */
+let sampleNames = store.get('sampleNames', {});
+function sampleHash(s) {
+  if (s._hk === s.adpcm) return s._h;
+  const a = s.adpcm; let h = 0x811c9dc5;
+  for (let i = 0; i < a.length; i++) { h ^= a[i]; h = Math.imul(h, 0x01000193); }
+  s._hk = a; return (s._h = (h >>> 0).toString(36) + '.' + a.length);
+}
+function rememberNames() {
+  try {
+    if (typeof su === 'undefined' || !su || !su.slots) return;
+    let changed = false;
+    su.slots.forEach((s, k) => {
+      if (!s || !s.adpcm) return; const h = sampleHash(s), n = pads[k].name || '';
+      if (n && sampleNames[h] !== n) { delete sampleNames[h]; sampleNames[h] = n; changed = true; }
+    });
+    if (!changed) return;
+    const keys = Object.keys(sampleNames); if (keys.length > 3000) keys.slice(0, keys.length - 3000).forEach(x => delete sampleNames[x]);
+    store.set('sampleNames', sampleNames);
+  } catch (e) {}
+}
+function namesFromSamples() {   // pad names for the memory now open: remembered names, else blank
+  su.slots.forEach((s, k) => { pads[k].name = s && s.adpcm ? (sampleNames[sampleHash(s)] || '') : ''; });
+}
 
 /* ---------- runtime state ---------- */
 let midi = null, inPort = null, outPort = null;
@@ -1877,7 +1903,8 @@ async function suTryOpen(msgs, name, fromElsewhere) {
   su.orig = su.slots.map(x => x && { adpcm: x.adpcm, start: x.start, loop: x.loop, end: x.end, lm: x.lm, sm: x.sm, vol: x.vol, alt: x.alt, note: x.note });
   su.origGrade = su.mem[SUK.SYS];
   su.baseName = name.replace(/\.syx$/i, '').replace(/_edit\d+$/, ''); su.version = (name.match(/_edit(\d+)\.syx$/i) || [0, 0])[1] | 0; su.savedAs = null;
-  // the unit's real settings now drive the pad sheet
+  // the unit's real settings now drive the pad sheet; names come back only for samples named before
+  namesFromSamples();
   su.slots.forEach((s, k) => { if (s) Object.assign(pads[k], { note: s.note, loop: LOOP_MODES[s.lm], sound: SOUND_MODES[s.sm], vol: s.vol, alt: s.alt }); else pads[k].note = img.emptyNote ? img.emptyNote[k] : null; });
   if (img.extra) log(`${name}: ${img.extra} extra SysEx message${img.extra > 1 ? 's' : ''} before the dump (an aborted start?) were ignored. Using the complete dump that starts at message ${img.from + 1}.`, 'err');
   savePads();
@@ -2289,7 +2316,7 @@ $('suSwap').onclick = () => { const t = +$('suSwapTo').value; if (t !== suSel) s
 $('suDel').onclick = async () => {
   if (!suCur()) return;
   if (!await ask(`<h2>Delete ${padKey(suSel)}?</h2><p class="muted">This frees ${(suCur().adpcm.length / 1024).toFixed(1)} KB.</p><p class="muted">The pad is written empty the way the SU10 does it (a zero-length record), and it keeps its Note#. Undo isn’t available for a delete, but the original stays in your saved dumps.</p>`, 'Delete')) return;
-  su.slots[suSel] = null; suMarkDirty(); audition.invalidate(suSel); refreshPads(); suRenderAll();
+  su.slots[suSel] = null; pads[suSel].name = ''; savePads(); renderSheet(); suMarkDirty(); audition.invalidate(suSel); refreshPads(); suRenderAll();
 };
 $('suWav').onclick = () => { const s = suCur(); if (s) download(wavBlob([suFloat(s)], suRate(s)), `su10_${padKey(suSel)}${pads[suSel].name ? '_' + pads[suSel].name.replace(/[^\w-]+/g, '_') : ''}.wav`); };
 
@@ -2373,7 +2400,7 @@ async function suSave() {
       const w = await h.createWritable(); await w.write(blob); await w.close(); name = h.name; how = 'chosen folder';
     } catch (e) { if (e.name === 'AbortError') return; download(blob, name); }
   } else download(blob, name);
-  su.version++; su.savedAs = name; su.dirty = false; su.name = name;
+  su.version++; su.savedAs = name; su.dirty = false; su.name = name; rememberNames();
   const n = suChanges().length;
   log(`Saved ${name} to ${how}: ${msgs.length} messages, re-parsed and verified, ${n} pad${n === 1 ? '' : 's'} changed vs original`);
   lcd.msg('Saved', name.slice(0, 12), 1500);
@@ -2382,7 +2409,7 @@ async function suSave() {
 $('suSave').onclick = suSave;
 window.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's' && su) { e.preventDefault(); suSave(); } });
 window.addEventListener('beforeunload', e => { if (su && su.dirty) { e.preventDefault(); e.returnValue = ''; } });
-$('suSend').onclick = async () => {
+$('suSend').onclick = async () => { rememberNames();
   if (su && su.dirty && !await ask('<h2>Send without saving?</h2><p class="muted">These edits haven’t been saved to disk yet. Saving first gives you a copy you can go back to.</p>', 'Send anyway')) return;
   try {
     const msgs = suBuildSyx(); loadSyx(msgs, suEditedName() + ' (built)');
@@ -3264,6 +3291,7 @@ $('suSummary').addEventListener('click', async e => {
 /* ---------- always have a memory open: a blank one from the template until a real dump is opened ---------- */
 function suStartBlank() {
   su = suBlankImage('New SU10 memory'); su.auto = true; suSel = 0;
+  namesFromSamples(); savePads(); renderSheet();
   settings.grade = ['Hi', 'Std', 'Long', 'Exlg'][su.mem[SUK.SYS] & 3]; saveSettings();
   refreshPads(); lcd.render(); suRenderAll();
 }
