@@ -17,13 +17,14 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          MSG: ${{ github.event.head_commit.message || 'manual release' }}
         run: |
           tag="v$(date -u +%Y.%m.%d)-$(git rev-parse --short HEAD)"
-          gh release create "$tag" su10_editor.html \
-            --title "SU10 Editor $(date -u +%Y-%m-%d)" \
-            --notes "Download **su10_editor.html** below and open it in Chrome, Edge or Opera. It's one self-contained file and runs offline. Click **Connect MIDI** and allow System Exclusive access.
-
-          Or use it online: https://reubenfinger.github.io/SU10-Editor/su10_editor.html
-
-          Changes: ${{ github.event.head_commit.message || 'manual release' }}" \
-            --latest
+          {
+            echo "Download **su10_editor.html** below and open it in Chrome, Edge or Opera. It's one self-contained file and runs offline. Click **Connect MIDI** and allow System Exclusive access."
+            echo
+            echo "Or use it online: https://reubenfinger.github.io/SU10-Editor/su10_editor.html"
+            echo
+            echo "Changes: $MSG"
+          } > notes.md
+          gh release create "$tag" su10_editor.html --title "SU10 Editor $(date -u +%Y-%m-%d)" --notes-file notes.md --latest
