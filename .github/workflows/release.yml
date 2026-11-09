@@ -1,0 +1,29 @@
+# Publishes su10_editor.html as a release asset whenever it changes on main,
+# so https://github.com/reubenfinger/SU10-Editor/releases/latest/download/su10_editor.html
+# always downloads the current editor.
+name: Release editor
+on:
+  push:
+    branches: [main]
+    paths: [su10_editor.html]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$(date -u +%Y.%m.%d)-$(git rev-parse --short HEAD)"
+          gh release create "$tag" su10_editor.html \
+            --title "SU10 Editor $(date -u +%Y-%m-%d)" \
+            --notes "Download **su10_editor.html** below and open it in Chrome, Edge or Opera. It's one self-contained file and runs offline. Click **Connect MIDI** and allow System Exclusive access.
+
+          Or use it online: https://reubenfinger.github.io/SU10-Editor/su10_editor.html
+
+          Changes: ${{ github.event.head_commit.message || 'manual release' }}" \
+            --latest
