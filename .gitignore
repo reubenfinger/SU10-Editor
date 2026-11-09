@@ -1,2 +1,16 @@
 .DS_Store
 _to_delete/
+
+# Personal material kept out of the public repo
+*.syx
+*.wav
+*.WAV
+*.aif
+*.aiff
+*.pdf
+*.jpg
+*.png
+*.log
+*.c6
+*.logic/
+SU10 BULK DUMPS/

@@ -142,3 +142,9 @@ The manual documents no messages for editing parameters (loop mode, volume, poin
 - Bulk dump contents are treated as opaque: the format isn't documented. The editor checks for the usual layout (1 header + 50 sections × 20 blocks).
 - Before a restore, set **DevNum** to All (or to the dump's number) and unlock all banks and songs.
 - Keyboard: `1`–`9` `0` `-` `=` pads · `B` bank · `H` hold · `R` rev.
+
+## Licence
+
+MIT, see [LICENSE](LICENSE). The Airwindows ports (TapeHack2, Pockey2, Tube2) are MIT too, © 2018 Chris Johnson, and their notice is kept in the source.
+
+The SU10 Owner's Manual is Yamaha's and isn't included here. Page references above are to that manual.
