@@ -1,5 +1,8 @@
 # SU10 Editor
 
+**▶ Use it online:** https://reubenfinger.github.io/SU10-Editor/su10_editor.html  
+**⬇ Download:** [su10_editor.html](https://github.com/reubenfinger/SU10-Editor/releases/latest/download/su10_editor.html) (one file, runs offline in Chrome, Edge or Opera)
+
 `su10_editor.html` is a single self-contained page: no server, no internet, no install. Open it in Chrome, Edge or Opera, click **Connect MIDI**, and allow System Exclusive access.
 
 Everything it sends or expects comes from the *SU10 Owner's Manual* (MIDI implementation chart, pp. 45, 56–63) and from [vitaflo/susend](https://github.com/vitaflo/susend) for bulk-restore timing.

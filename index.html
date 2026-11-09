@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SU10 Editor</title>
+<meta name="description" content="A Web MIDI editor and librarian for the Yamaha SU10 sampler: bulk dump editing, sample prep, chop mode and more.">
+<style>
+  :root { --bg:#111317; --card:#1a1d24; --line:#2c313c; --text:#e7e9ee; --muted:#98a1b0; --accent:#f2b544; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--text);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px 16px; }
+  main { width: 100%; max-width: 560px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 32px 28px; }
+  h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -.01em; }
+  h1 span { color: var(--accent); }
+  p { margin: 0 0 18px; color: var(--muted); }
+  .btns { display: flex; flex-wrap: wrap; gap: 12px; margin: 22px 0 18px; }
+  a.btn { flex: 1 1 200px; text-align: center; text-decoration: none; padding: 14px 18px; border-radius: 10px; font-weight: 600;
+          border: 1px solid var(--line); color: var(--text); background: #20242d; }
+  a.btn.primary { background: var(--accent); color: #17130a; border-color: var(--accent); }
+  a.btn:hover { filter: brightness(1.08); }
+  a.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  small { display: block; color: var(--muted); font-size: 13px; }
+  small a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Yamaha <span>SU10</span> Editor</h1>
+  <p>Web MIDI editor and librarian for the SU10: open and edit bulk dumps, build new memories from folders of samples, chop, loop, tune and send back to the unit.</p>
+  <div class="btns">
+    <a class="btn primary" href="su10_editor.html">Open the editor</a>
+    <a class="btn" href="su10_editor.html" download="su10_editor.html">Download (one HTML file)</a>
+  </div>
+  <small>Works in Chrome, Edge or Opera on desktop. Click <b>Connect MIDI</b> and allow System Exclusive access. The downloaded file runs offline: just open it in the browser.</small>
+  <small style="margin-top:10px"><a href="https://github.com/reubenfinger/SU10-Editor">Source, README and licence on GitHub</a> · MIT</small>
+</main>
+</body>
+</html>
